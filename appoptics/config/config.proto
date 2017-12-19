@@ -1,0 +1,70 @@
+// Copyright 2017 Istio Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package adapter.appoptics.config;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "config";
+option (gogoproto.goproto_getters_all) = false;
+option (gogoproto.equal_all) = false;
+option (gogoproto.gostring_all) = false;
+
+message Params {
+    
+    string appoptics_access_token = 1;
+    
+    string papertrail_url = 2;
+
+    string papertrail_local_retention = 3;
+    
+    // Describes how a metric should be represented in Prometheus.
+    message MetricInfo {
+        // Recommended. The name is used to register the prometheus metric.
+        // It must be unique across all prometheus metrics as prometheus does not allow duplicate names.
+        // If name is not specified a sanitized version of instance_name is used.
+        string name = 1;
+
+        // Required. The name is the fully qualified name of the Istio metric instance
+        // that this MetricInfo processes.
+        string instance_name = 2;
+
+        // Optional. A human readable description of this metric.
+        string description = 3;
+
+        // The names of labels to use: these need to match the dimensions of the Istio metric.
+        // TODO: see if we can remove this and rely on only the dimensions in the future.
+        repeated string label_names = 4;
+
+    }
+    // The set of metrics to represent in Prometheus. If a metric is defined in Istio but doesn't have a corresponding
+    // shape here, it will not be populated at runtime.
+    repeated MetricInfo metrics = 4;
+
+    message LogInfo {
+        // The logging template provides a set of variables; these list the subset of variables that should be used to
+        // form Stackdriver labels for the log entry.
+        repeated string label_names = 1;
+
+        // A golang text/template template that will be executed to construct the payload for this log entry.
+        // It will be given the full set of variables for the log to use to construct its result.
+        string payload_template = 2;
+
+        string instance_name = 3;
+    }
+
+    repeated LogInfo logs = 5;
+}
