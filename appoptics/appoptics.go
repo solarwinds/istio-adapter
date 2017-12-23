@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"istio.io/istio/mixer/adapter/appoptics/config"
-	"istio.io/istio/mixer/adapter/appoptics/logger"
+	"istio.io/istio/mixer/adapter/appoptics/papertrail"
 
 	"istio.io/istio/mixer/adapter/appoptics/appoptics"
 	"istio.io/istio/mixer/adapter/appoptics/promadapter"
@@ -35,22 +35,14 @@ import (
 )
 
 type (
-	// cinfo is a collector, its kind and the sha
-	// of config that produced the collector.
-	// sha is used to confirm a cache hit.
-
 	builder struct {
-		// maps instance_name to collector.
-		// srv server
 		cfg *config.Params
 	}
 
 	handler struct {
-		// srv    server
 		logger           adapter.Logger
-		client           *appoptics.Client
 		prepChan         chan []*appoptics.Measurement
-		paperTrailLogger *logger.PaperTrailLogger
+		paperTrailLogger *papertrail.PaperTrailLogger
 	}
 )
 
@@ -98,27 +90,39 @@ func (b *builder) Validate() *adapter.ConfigErrors { return nil }
 func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, error) {
 	env.Logger().Infof("AO - Invoking AO build.")
 
-	lc := appoptics.NewClient(b.cfg.AppopticsAccessToken, env.Logger())
-
+	var err error
 	// prepChan holds groups of Measurements to be batched
 	prepChan := make(chan []*appoptics.Measurement)
 
-	// pushChan holds groups of Measurements conforming to the size constraint described
-	// by AppOptics.MeasurementPostMaxBatchSize
-	pushChan := make(chan []*appoptics.Measurement)
+	if strings.TrimSpace(b.cfg.AppopticsAccessToken) != "" {
+		lc := appoptics.NewClient(b.cfg.AppopticsAccessToken, env.Logger())
 
-	var stopChan = make(chan bool)
+		// pushChan holds groups of Measurements conforming to the size constraint described
+		// by AppOptics.MeasurementPostMaxBatchSize
+		pushChan := make(chan []*appoptics.Measurement)
 
-	// errorChan is used to track persistence errors and shutdown when too many are seen
-	errorChan := make(chan error)
+		var stopChan = make(chan bool)
 
-	go promadapter.BatchMeasurements(prepChan, pushChan, stopChan, env.Logger())
-	go promadapter.PersistBatches(lc, pushChan, stopChan, errorChan, env.Logger())
-	go promadapter.ManagePersistenceErrors(errorChan, stopChan, env.Logger())
+		// errorChan is used to track persistence errors and shutdown when too many are seen
+		errorChan := make(chan error)
 
-	pp, err := logger.NewPaperTrailLogger(b.cfg.PapertrailUrl, b.cfg.PapertrailLocalRetention, b.cfg.Logs, env.Logger())
+		go promadapter.BatchMeasurements(prepChan, pushChan, stopChan, env.Logger())
+		go promadapter.PersistBatches(lc, pushChan, stopChan, errorChan, env.Logger())
+		go promadapter.ManagePersistenceErrors(errorChan, stopChan, env.Logger())
+	} else {
+		go func() {
+			// to drain the channel
+			for range prepChan {
 
-	return &handler{env.Logger(), lc, prepChan, pp}, err
+			}
+		}()
+	}
+
+	var pp *papertrail.PaperTrailLogger
+	if strings.TrimSpace(b.cfg.PapertrailUrl) != "" {
+		pp, err = papertrail.NewPaperTrailLogger(b.cfg.PapertrailUrl, b.cfg.PapertrailLocalRetention, b.cfg.Logs, env.Logger())
+	}
+	return &handler{env.Logger(), prepChan, pp}, err
 }
 
 func (h *handler) HandleMetric(_ context.Context, vals []*metric.Instance) error {
@@ -158,20 +162,25 @@ func (h *handler) HandleMetric(_ context.Context, vals []*metric.Instance) error
 func (h *handler) HandleLogEntry(ctx context.Context, values []*logentry.Instance) error {
 	h.logger.Infof("AO - In the log handler")
 	for _, inst := range values {
-		err := h.paperTrailLogger.Log(inst)
-		if err != nil {
-			h.logger.Errorf("AO - log error: %v", err)
-			return err
+		if h.paperTrailLogger != nil {
+			err := h.paperTrailLogger.Log(inst)
+			if err != nil {
+				h.logger.Errorf("AO - log error: %v", err)
+				return err
+			}
 		}
 	}
 	return nil
 }
 
 func (h *handler) Close() error {
+	var err error
 	// h.logger.Infof("AO - closing handler")
 	h.logger.Infof("AO - closing handler")
-	err := h.paperTrailLogger.Close()
-	// return h.srv.Close()
+	if h.paperTrailLogger != nil {
+		err = h.paperTrailLogger.Close()
+		// return h.srv.Close()
+	}
 	return err
 }
 
@@ -182,8 +191,7 @@ func (h *handler) aoVal(i interface{}) float64 {
 	case int64:
 		return float64(vv)
 	case time.Duration:
-		// TODO: what is the right thing here?
-		// use seconds for now, as we get fractional values...
+		// use seconds for now
 		return vv.Seconds()
 	case string:
 		f, err := strconv.ParseFloat(vv, 64)

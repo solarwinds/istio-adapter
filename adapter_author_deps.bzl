@@ -57,12 +57,6 @@ def mixer_adapter_repositories():
     )
 
     go_repository(
-        name = "com_github_sirupsen_logrus",
-        commit = "d682213848ed68c0a260ca37d6dd5ace8423f5ba",
-        importpath = "github.com/sirupsen/logrus",
-    )
-
-    go_repository(
         name = "com_github_boltdb_bolt",
         commit = "9da31745363232bc1e27dbab3569e77383a51585",
         importpath = "github.com/boltdb/bolt",

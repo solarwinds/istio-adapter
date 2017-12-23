@@ -12,7 +12,7 @@ go_library(
     deps = [
         "//mixer/adapter/appoptics/appoptics:go_default_library",
         "//mixer/adapter/appoptics/config:go_default_library",
-        "//mixer/adapter/appoptics/logger:go_default_library",
+        "//mixer/adapter/appoptics/papertrail:go_default_library",
         "//mixer/adapter/appoptics/promadapter:go_default_library",
         "//mixer/pkg/adapter:go_default_library",
         "//mixer/template/logentry:go_default_library",

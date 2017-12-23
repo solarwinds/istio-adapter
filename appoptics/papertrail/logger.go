@@ -1,10 +1,11 @@
-package logger
+package papertrail
 
 import (
 	"fmt"
 	"html/template"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,14 +17,14 @@ import (
 	"istio.io/istio/mixer/template/logentry"
 
 	"istio.io/istio/mixer/pkg/pool"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const (
 	bucketName = "docker"
 
 	defaultRetention = "24h"
+
+	defaultTemplate = `{{or (.originIp) "-"}} - {{or (.sourceUser) "-"}} [{{or (.timestamp.Format "2006-01-02T15:04:05Z07:00") "-"}}] "{{or (.method) "-"}} {{or (.url) "-"}} {{or (.protocol) "-"}}" {{or (.responseCode) "-"}} {{or (.responseSize) "-"}}`
 )
 
 var db *bolt.DB
@@ -54,7 +55,7 @@ func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfig
 	if err != nil {
 		retention, _ = time.ParseDuration(defaultRetention)
 	}
-	if retention.Seconds() > float64(0) {
+	if retention.Seconds() <= float64(0) {
 		retention, _ = time.ParseDuration(defaultRetention)
 	}
 
@@ -67,7 +68,7 @@ func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfig
 		}
 	}
 
-	log.Infof("Creating a new paper trail logger for url: %s", paperTrailURL)
+	logger.Infof("Creating a new paper trail logger for url: %s", paperTrailURL)
 
 	p := &PaperTrailLogger{
 		paperTrailURL:   paperTrailURL,
@@ -78,7 +79,13 @@ func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfig
 	p.logInfos = map[string]*logInfo{}
 
 	for _, l := range logConfigs {
-		tmpl, err := template.New(l.InstanceName).Parse(l.PayloadTemplate)
+		var templ string
+		if strings.TrimSpace(l.PayloadTemplate) != "" {
+			templ = l.PayloadTemplate
+		} else {
+			templ = defaultTemplate
+		}
+		tmpl, err := template.New(l.InstanceName).Parse(templ)
 		if err != nil {
 			logger.Errorf("AO - failed to evaluate template for log instance: %s, skipping: %v", l.InstanceName, err)
 			continue
@@ -202,9 +209,5 @@ func (p *PaperTrailLogger) Close() error {
 			return e
 		}
 	}
-	// if p.db != nil {
-	// 	err = p.db.Close()
-	// 	p.db = nil // this will stop the flush loop
-	// }
 	return err
 }
