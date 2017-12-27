@@ -12,7 +12,6 @@ go_library(
         "measurements.go",
         "mock_client.go",
         "mock_measurements_service.go",
-        "spaces.go",
     ],
     importpath = "istio.io/istio/mixer/adapter/appoptics/appoptics",
     visibility = [

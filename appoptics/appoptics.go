@@ -155,7 +155,6 @@ func (h *handler) HandleMetric(_ context.Context, vals []*metric.Instance) error
 	}
 	h.prepChan <- measurements
 
-	// return result.ErrorOrNil()
 	return nil
 }
 

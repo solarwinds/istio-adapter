@@ -15,13 +15,11 @@ import (
 type ServiceAccessor interface {
 	// MeasurementsService implements an interface for dealing with  Measurements
 	MeasurementsService() MeasurementsCommunicator
-	// SpacesService implements an interface for dealing with  Spaces
-	SpacesService() SpacesCommunicator
 }
 
 const (
 	// MeasurementPostMaxBatchSize defines the max number of Measurements to send to the API at once
-	MeasurementPostMaxBatchSize = 10
+	MeasurementPostMaxBatchSize = 100
 	defaultBaseURL              = "https://api.appoptics.com/v1/"
 	defaultMediaType            = "application/json"
 )
@@ -36,9 +34,8 @@ type Client struct {
 	token string
 	// measurementsService embeds the client and implements access to the Measurements API
 	measurementsService MeasurementsCommunicator
-	// spacesService embeds the client and implements access to the Spaces API
-	spacesService SpacesCommunicator
-	logger        adapter.Logger
+
+	logger adapter.Logger
 }
 
 // ErrorResponse represents the response body returned when the API reports an error
@@ -60,7 +57,6 @@ func NewClient(token string, logger adapter.Logger) *Client {
 		baseURL: baseURL,
 	}
 	c.measurementsService = &MeasurementsService{c, logger}
-	c.spacesService = &SpacesService{c}
 
 	return c
 }
@@ -101,11 +97,6 @@ func (c *Client) NewRequest(method, path string, body interface{}) (*http.Reques
 // MeasurementsService represents the subset of the API that deals with AppOptics Measurements
 func (c *Client) MeasurementsService() MeasurementsCommunicator {
 	return c.measurementsService
-}
-
-// SpacesService represents the subset of the API that deals with  Measurements
-func (c *Client) SpacesService() SpacesCommunicator {
-	return c.spacesService
 }
 
 // Error makes ErrorResponse satisfy the error interface and can be used to serialize error responses back to the client

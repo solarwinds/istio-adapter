@@ -14,19 +14,22 @@ import (
 // and packages them into batches conforming to the limitations imposed by the API.
 func BatchMeasurements(prepChan <-chan []*appoptics.Measurement, pushChan chan<- []*appoptics.Measurement, stopChan <-chan bool, logger adapter.Logger) {
 	var currentBatch []*appoptics.Measurement
+	dobrk := false
 	for {
 		select {
 		case mslice := <-prepChan:
 			logger.Infof("AO - batching measurements: %v", mslice)
 			currentBatch = append(currentBatch, mslice...)
-			logger.Infof("AO - current batch size: %d", len(currentBatch))
-			logger.Infof("AO - batch max size: %d", appoptics.MeasurementPostMaxBatchSize)
+			logger.Infof("AO - current batch size: %d, batch max size: %d", len(currentBatch), appoptics.MeasurementPostMaxBatchSize)
 			if len(currentBatch) >= appoptics.MeasurementPostMaxBatchSize {
 				pushBatch := currentBatch[:appoptics.MeasurementPostMaxBatchSize]
 				pushChan <- pushBatch
 				currentBatch = currentBatch[appoptics.MeasurementPostMaxBatchSize:]
 			}
 		case <-stopChan:
+			dobrk = true
+		}
+		if dobrk {
 			break
 		}
 	}
@@ -36,6 +39,7 @@ func BatchMeasurements(prepChan <-chan []*appoptics.Measurement, pushChan chan<-
 // API. Errors are placed on the error channel.
 func PersistBatches(lc appoptics.ServiceAccessor, pushChan <-chan []*appoptics.Measurement, stopChan <-chan bool, errorChan chan<- error, logger adapter.Logger) {
 	ticker := time.NewTicker(time.Millisecond * 500)
+	dobrk := false
 	for {
 		select {
 		case <-ticker.C:
@@ -47,6 +51,9 @@ func PersistBatches(lc appoptics.ServiceAccessor, pushChan <-chan []*appoptics.M
 			}
 		case <-stopChan:
 			ticker.Stop()
+			dobrk = true
+		}
+		if dobrk {
 			break
 		}
 	}
@@ -72,14 +79,17 @@ func ManagePersistenceErrors(errorChan <-chan error, stopChan chan<- bool, logge
 // persistBatch sends to the remote AppOptics endpoint unless config.SendStats() returns false, when it prints to stdout
 func persistBatch(lc appoptics.ServiceAccessor, batch []*appoptics.Measurement, logger adapter.Logger) error {
 	logger.Infof("AO - persisting %d Measurements to AppOptics", len(batch))
-	resp, err := lc.MeasurementsService().Create(batch)
-	if resp == nil {
-		logger.Infof("AO - response is nil")
-		return err
+	if len(batch) > 0 {
+		resp, err := lc.MeasurementsService().Create(batch)
+		if err != nil {
+			logger.Errorf("AO - persist error: %v", err)
+			return err
+		}
+		dumpResponse(resp, logger)
 	}
-	dumpResponse(resp, logger)
 	return nil
 }
+
 func dumpResponse(resp *http.Response, logger adapter.Logger) {
 	buf := new(bytes.Buffer)
 	logger.Infof("AO - response status: %s", resp.Status)

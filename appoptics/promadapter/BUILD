@@ -14,3 +14,18 @@ go_library(
         "//mixer/adapter/appoptics/appoptics:go_default_library",
     ],
 )
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = [
+        "batching_test.go",
+    ],
+    importpath = "istio.io/istio/mixer/adapter/appoptics/promadapter",
+    library = ":go_default_library",
+    deps = [
+        "//mixer/pkg/adapter/test:go_default_library",
+        "//mixer/pkg/adapter:go_default_library",
+        "//mixer/adapter/appoptics/appoptics:go_default_library",
+    ],
+)

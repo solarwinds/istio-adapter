@@ -22,6 +22,8 @@ import (
 const (
 	bucketName = "docker"
 
+	defaultWorkerCount = 10
+
 	defaultRetention = "24h"
 
 	defaultTemplate = `{{or (.originIp) "-"}} - {{or (.sourceUser) "-"}} [{{or (.timestamp.Format "2006-01-02T15:04:05Z07:00") "-"}}] "{{or (.method) "-"}} {{or (.url) "-"}} {{or (.protocol) "-"}}" {{or (.responseCode) "-"}} {{or (.responseSize) "-"}}`
@@ -47,6 +49,8 @@ type PaperTrailLogger struct {
 	logInfos map[string]*logInfo
 
 	log adapter.Logger
+
+	maxWorkers int
 }
 
 func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfigs []*config.Params_LogInfo, logger adapter.Logger) (*PaperTrailLogger, error) {
@@ -75,7 +79,9 @@ func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfig
 		retentionPeriod: time.Duration(retention) * time.Hour,
 		db:              db,
 		log:             logger,
+		maxWorkers:      defaultWorkerCount,
 	}
+
 	p.logInfos = map[string]*logInfo{}
 
 	for _, l := range logConfigs {
@@ -164,6 +170,10 @@ func (p *PaperTrailLogger) flushLogs() {
 	var err error
 	for p.db != nil {
 		err = p.db.Update(func(tx *bolt.Tx) error {
+			hose := make(chan []byte, p.maxWorkers)
+			// close the channel
+			defer close(hose)
+			var wg sync.WaitGroup
 			// Assume bucket exists and has keys
 			b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
 			if err != nil {
@@ -172,25 +182,67 @@ func (p *PaperTrailLogger) flushLogs() {
 				return err1
 			}
 
-			b.ForEach(func(k, v []byte) error {
-				err = p.sendLogs(v)
-				if err == nil {
-					p.log.Infof("AO - flushLogs, delete key: %s", string(k))
-					err = b.Delete(k)
-					if err != nil {
-						p.log.Errorf("Unable to delete from boltdb: %v. Continuing to try", err)
+			for i := 0; i < p.maxWorkers; i++ {
+				go func(worker int) {
+					p.log.Infof("AO - flushlogs, worker %d took the job.", (worker + 1))
+					for key := range hose {
+						val := b.Get(key)
+						err = p.sendLogs(val)
+						if err == nil {
+							p.log.Infof("AO - flushLogs, delete key: %s", string(key))
+							err = b.Delete(key)
+							if err != nil {
+								p.log.Errorf("Unable to delete from boltdb: %v. Continuing to try", err)
+							} else {
+								wg.Done()
+								continue
+							}
+						}
+
+						tsN, _ := strconv.ParseInt(string(key), 10, 64)
+						ts := time.Unix(0, tsN)
+
+						if time.Since(ts) > p.retentionPeriod {
+							p.log.Infof("AO - flushLogs, delete key: %s bcoz it is past retention period.", string(key))
+							err = b.Delete(key)
+							if err != nil {
+								p.log.Errorf("Unable to delete from boltdb: %v. Continuing to try", err)
+							}
+						}
+						wg.Done()
 					}
-				}
+				}(i)
+			}
 
-				tsN, _ := strconv.ParseInt(string(k), 10, 64)
-				ts := time.Unix(0, tsN)
+			c := b.Cursor()
 
-				if time.Since(ts) > p.retentionPeriod {
-					p.log.Infof("AO - flushLogs, delete key: %s bcoz it is past retention period.", string(k))
-					err = b.Delete(k)
-				}
-				return err
-			})
+			for k, _ := c.First(); k != nil; k, _ = c.Next() {
+				wg.Add(1)
+				hose <- k
+			}
+
+			// need to wait for the things to complete
+			wg.Wait()
+
+			// b.ForEach(func(k, v []byte) error {
+			// 	err = p.sendLogs(v)
+			// 	if err == nil {
+			// 		p.log.Infof("AO - flushLogs, delete key: %s", string(k))
+			// 		err = b.Delete(k)
+			// 		if err != nil {
+			// 			p.log.Errorf("Unable to delete from boltdb: %v. Continuing to try", err)
+			// 		}
+			// 	}
+
+			// 	tsN, _ := strconv.ParseInt(string(k), 10, 64)
+			// 	ts := time.Unix(0, tsN)
+
+			// 	if time.Since(ts) > p.retentionPeriod {
+			// 		p.log.Infof("AO - flushLogs, delete key: %s bcoz it is past retention period.", string(k))
+			// 		err = b.Delete(k)
+			// 	}
+			// 	return err
+			// })
 			return nil
 		})
 		if err != nil {
