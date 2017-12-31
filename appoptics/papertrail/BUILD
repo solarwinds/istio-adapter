@@ -1,13 +1,13 @@
-package(default_visibility = ["//mixer/adapter/appoptics:__pkg__"])
+package(default_visibility = ["//mixer/adapter/appoptics:__pkg__","//mixer/adapter/appoptics/appoptics:__pkg__","//mixer/adapter/appoptics/promadapter:__pkg__"])
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["logger.go"],
+    srcs = ["logger.go", "adapter_logger.go"],
     importpath = "istio.io/istio/mixer/adapter/appoptics/papertrail",
     deps = [
-         "//mixer/adapter/appoptics/config:go_default_library",
+        "//mixer/adapter/appoptics/config:go_default_library",
         "//mixer/pkg/adapter:go_default_library",
         "//mixer/pkg/pool:go_default_library",
         "//mixer/template/logentry:go_default_library",

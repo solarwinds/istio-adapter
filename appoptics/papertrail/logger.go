@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	bucketName = "docker"
+	bucketName = "istio"
 
 	defaultWorkerCount = 10
 
@@ -35,6 +35,12 @@ type logInfo struct {
 	labels []string
 	tmpl   *template.Template
 }
+
+type PaperTrailLoggerInterface interface {
+	Log(*logentry.Instance) error
+	Close() error
+}
+
 type PaperTrailLogger struct {
 	paperTrailURL string
 
@@ -53,7 +59,7 @@ type PaperTrailLogger struct {
 	maxWorkers int
 }
 
-func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfigs []*config.Params_LogInfo, logger adapter.Logger) (*PaperTrailLogger, error) {
+func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfigs []*config.Params_LogInfo, logger adapter.Logger) (PaperTrailLoggerInterface, error) {
 
 	retention, err := time.ParseDuration(logRetentionStr)
 	if err != nil {
@@ -184,8 +190,10 @@ func (p *PaperTrailLogger) flushLogs() {
 
 			for i := 0; i < p.maxWorkers; i++ {
 				go func(worker int) {
-					p.log.Infof("AO - flushlogs, worker %d took the job.", (worker + 1))
+					p.log.Infof("AO - flushlogs, worker %d initialized.", (worker + 1))
+					defer p.log.Infof("AO - flushlogs, worker %d signing off.", (worker + 1))
 					for key := range hose {
+						p.log.Infof("AO - flushlogs, worker %d took the job.", (worker + 1))
 						val := b.Get(key)
 						err = p.sendLogs(val)
 						if err == nil {
@@ -221,28 +229,8 @@ func (p *PaperTrailLogger) flushLogs() {
 				hose <- k
 			}
 
-			// need to wait for the things to complete
+			// need to wait for the tasks to complete
 			wg.Wait()
-
-			// b.ForEach(func(k, v []byte) error {
-			// 	err = p.sendLogs(v)
-			// 	if err == nil {
-			// 		p.log.Infof("AO - flushLogs, delete key: %s", string(k))
-			// 		err = b.Delete(k)
-			// 		if err != nil {
-			// 			p.log.Errorf("Unable to delete from boltdb: %v. Continuing to try", err)
-			// 		}
-			// 	}
-
-			// 	tsN, _ := strconv.ParseInt(string(k), 10, 64)
-			// 	ts := time.Unix(0, tsN)
-
-			// 	if time.Since(ts) > p.retentionPeriod {
-			// 		p.log.Infof("AO - flushLogs, delete key: %s bcoz it is past retention period.", string(k))
-			// 		err = b.Delete(k)
-			// 	}
-			// 	return err
-			// })
 			return nil
 		})
 		if err != nil {
@@ -260,6 +248,11 @@ func (p *PaperTrailLogger) Close() error {
 			p.log.Errorf("%v", e)
 			return e
 		}
+	}
+
+	// TODO: This is experimental. Needs to be tested.
+	if p.db != nil {
+		err = p.db.Close()
 	}
 	return err
 }

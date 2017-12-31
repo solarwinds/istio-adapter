@@ -12,7 +12,7 @@ import (
 
 // BatchMeasurements reads slices of AppOptics.Measurement types off a channel populated by the web handler
 // and packages them into batches conforming to the limitations imposed by the API.
-func BatchMeasurements(prepChan <-chan []*appoptics.Measurement, pushChan chan<- []*appoptics.Measurement, stopChan <-chan bool, logger adapter.Logger) {
+func BatchMeasurements(prepChan <-chan []*appoptics.Measurement, pushChan chan<- []*appoptics.Measurement, stopChan <-chan struct{}, logger adapter.Logger) {
 	var currentBatch []*appoptics.Measurement
 	dobrk := false
 	for {
@@ -37,7 +37,7 @@ func BatchMeasurements(prepChan <-chan []*appoptics.Measurement, pushChan chan<-
 
 // PersistBatches reads maximal slices of AppOptics.Measurement types off a channel and persists them to the remote AppOptics
 // API. Errors are placed on the error channel.
-func PersistBatches(lc appoptics.ServiceAccessor, pushChan <-chan []*appoptics.Measurement, stopChan <-chan bool, errorChan chan<- error, logger adapter.Logger) {
+func PersistBatches(lc appoptics.ServiceAccessor, pushChan <-chan []*appoptics.Measurement, stopChan <-chan struct{}, errorChan chan<- error, logger adapter.Logger) {
 	ticker := time.NewTicker(time.Millisecond * 500)
 	dobrk := false
 	for {
@@ -60,7 +60,7 @@ func PersistBatches(lc appoptics.ServiceAccessor, pushChan <-chan []*appoptics.M
 }
 
 // ManagePersistenceErrors tracks errors on the provided channel and sends a stop signal if the ErrorLimit is reached
-func ManagePersistenceErrors(errorChan <-chan error, stopChan chan<- bool, logger adapter.Logger) {
+func ManagePersistenceErrors(errorChan <-chan error, stopChan chan<- struct{}, logger adapter.Logger) {
 	// var errors []error
 	for {
 		select {

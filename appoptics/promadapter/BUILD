@@ -27,5 +27,6 @@ go_test(
         "//mixer/pkg/adapter/test:go_default_library",
         "//mixer/pkg/adapter:go_default_library",
         "//mixer/adapter/appoptics/appoptics:go_default_library",
+		"//mixer/adapter/appoptics/papertrail:go_default_library",
     ],
 )

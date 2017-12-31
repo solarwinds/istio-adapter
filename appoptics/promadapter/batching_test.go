@@ -8,32 +8,17 @@ import (
 	"time"
 
 	"istio.io/istio/mixer/adapter/appoptics/appoptics"
-	"istio.io/istio/mixer/pkg/adapter"
+	"istio.io/istio/mixer/adapter/appoptics/papertrail"
 )
-
-type loggerImpl struct{}
-
-func (l *loggerImpl) VerbosityLevel(level adapter.VerbosityLevel) bool {
-	return false
-}
-func (l *loggerImpl) Infof(format string, args ...interface{}) {
-	fmt.Printf("INFO: "+format+"\n", args...)
-}
-func (l *loggerImpl) Warningf(format string, args ...interface{}) {
-	fmt.Printf("WARN: "+format+"\n", args...)
-}
-func (l *loggerImpl) Errorf(format string, args ...interface{}) error {
-	return fmt.Errorf("Error: "+format+"\n", args...)
-}
 
 func TestBatchMeasurements(t *testing.T) {
 
 	t.Run("All Good", func(t *testing.T) {
-		logger := &loggerImpl{}
-		logger.Infof("\n\nStarting TestBatchMeasurements - All Good - test run. . .")
+		logger := &papertrail.LoggerImpl{}
+		logger.Infof("Starting %s - test run. . .", t.Name())
 		prepChan := make(chan []*appoptics.Measurement)
 		pushChan := make(chan []*appoptics.Measurement)
-		stopChan := make(chan bool)
+		stopChan := make(chan struct{})
 
 		go BatchMeasurements(prepChan, pushChan, stopChan, logger)
 
@@ -54,25 +39,25 @@ func TestBatchMeasurements(t *testing.T) {
 			t.Errorf("Batching is not working properly. Expected batches is 1 but got %d", count)
 		}
 		close(stopChan)
-		logger.Infof("\n\nFinished TestBatchMeasurements - All Good - test run. . .")
+		logger.Infof("Finished %s - test run. . .", t.Name())
 	})
 
 	t.Run("Using stop chan", func(t *testing.T) {
-		logger := &loggerImpl{}
-		logger.Infof("\n\nStarting TestBatchMeasurements - Using stop chan - test run. . .")
+		logger := &papertrail.LoggerImpl{}
+		logger.Infof("Starting %s - test run. . .", t.Name())
 		prepChan := make(chan []*appoptics.Measurement)
 		pushChan := make(chan []*appoptics.Measurement)
-		stopChan := make(chan bool)
+		stopChan := make(chan struct{})
 
 		go func() {
 			time.Sleep(time.Millisecond)
-			stopChan <- true
+			stopChan <- struct{}{}
 		}()
 		BatchMeasurements(prepChan, pushChan, stopChan, logger)
 		close(stopChan)
 		close(prepChan)
 		close(pushChan)
-		logger.Infof("\n\nFinished TestBatchMeasurements - Using stop chan - test run. . .")
+		logger.Infof("Finished %s - test run. . .", t.Name())
 	})
 
 }
@@ -121,16 +106,16 @@ func TestPersistBatches(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			logger := &loggerImpl{}
-			logger.Infof("Starting TestPersistBatches - %s - test run. . .\n", test.name)
+			logger := &papertrail.LoggerImpl{}
+			logger.Infof("Starting %s - test run. . .\n", t.Name())
 			pushChan := make(chan []*appoptics.Measurement)
-			stopChan := make(chan bool)
+			stopChan := make(chan struct{})
 			errChan := make(chan error)
 			var count int64
 			if test.sendOnStopChan {
 				go func() {
 					time.Sleep(time.Millisecond)
-					stopChan <- true
+					stopChan <- struct{}{}
 				}()
 			}
 			go func() {
@@ -161,7 +146,7 @@ func TestPersistBatches(t *testing.T) {
 			close(pushChan)
 			close(stopChan)
 			close(errChan)
-			logger.Infof("Finished TestPersistBatches - %s - test run. . .", test.name)
+			logger.Infof("Finished %s - test run. . .", t.Name())
 		})
 	}
 }

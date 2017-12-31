@@ -3,8 +3,9 @@ package appoptics
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
-	"log"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 
@@ -55,6 +56,7 @@ func NewClient(token string, logger adapter.Logger) *Client {
 		client:  new(http.Client),
 		token:   token,
 		baseURL: baseURL,
+		logger:  logger,
 	}
 	c.measurementsService = &MeasurementsService{c, logger}
 
@@ -115,7 +117,7 @@ func (c *Client) Do(req *http.Request, respData interface{}) (*http.Response, er
 	}
 
 	// request response contains an error
-	if err = checkError(resp); err != nil {
+	if err = checkError(resp, c.logger); err != nil {
 		return resp, err
 	}
 
@@ -133,21 +135,19 @@ func (c *Client) Do(req *http.Request, respData interface{}) (*http.Response, er
 }
 
 // checkError creates an ErrorResponse from the http.Response.Body
-func checkError(resp *http.Response) error {
+func checkError(resp *http.Response, log adapter.Logger) error {
 	var errResponse ErrorResponse
 	if resp.StatusCode >= 299 {
-		dec := json.NewDecoder(resp.Body)
-		dec.Decode(&errResponse)
-		log.Printf("Error: %+v\n", errResponse)
-		return &errResponse
+		body, _ := ioutil.ReadAll(resp.Body)
+		err := json.Unmarshal(body, &errResponse)
+		if err == nil {
+			log.Infof("Error: %+v", errResponse)
+			return &errResponse
+		} else {
+			stringBody := string(body)
+			log.Infof("Error: %s", stringBody)
+			return fmt.Errorf("%s", stringBody)
+		}
 	}
 	return nil
-}
-
-func dumpBody(body interface{}) {
-	jsonData, err := json.MarshalIndent(body, "", "  ")
-	if err != nil {
-		log.Fatalln(err)
-	}
-	log.Println(string(jsonData))
 }

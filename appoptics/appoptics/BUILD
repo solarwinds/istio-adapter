@@ -25,7 +25,11 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["client_test.go"],
+    srcs = ["client_test.go", "measurements_test.go"],
     importpath = "istio.io/istio/mixer/adapter/appoptics/appoptics",
     library = ":go_default_library",
+	deps = [
+		"//mixer/pkg/adapter:go_default_library",
+		"//mixer/adapter/appoptics/papertrail:go_default_library",
+	]
 )

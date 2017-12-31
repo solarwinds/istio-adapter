@@ -49,6 +49,7 @@ func (ms *MeasurementsService) Create(mc []*Measurement) (*http.Response, error)
 	d, err := json.Marshal(payload)
 	if err != nil {
 		ms.logger.Errorf("AO - Marshal error: %v\n", err)
+		return nil, err
 	}
 	ms.logger.Infof("AO - sending data to AppOptics with payload: %v\n", string(d))
 	req, err := ms.client.NewRequest("POST", "measurements", payload)
@@ -61,11 +62,13 @@ func (ms *MeasurementsService) Create(mc []*Measurement) (*http.Response, error)
 }
 
 func dumpMeasurements(measurements interface{}, logger adapter.Logger) {
-	ms := measurements.(MeasurementPayload)
-	for i, measurement := range ms.Measurements {
-		if math.IsNaN(measurement.Value) {
-			logger.Infof("Found at index %d", i)
-			logger.Infof("found in '%s'", measurement.Name)
+	ms, ok := measurements.(MeasurementPayload)
+	if ok {
+		for i, measurement := range ms.Measurements {
+			if math.IsNaN(measurement.Value) {
+				logger.Infof("Found at index %d", i)
+				logger.Infof("found in '%s'", measurement.Name)
+			}
 		}
 	}
 }
