@@ -51,27 +51,25 @@ func TestNewRequest(t *testing.T) {
 	t.Run("All good", func(t *testing.T) {
 		logger := &papertrail.LoggerImpl{}
 		logger.Infof("Starting %s - test run. . .\n", t.Name())
+		defer logger.Infof("Finishing %s - test run. . .\n", t.Name())
 
 		c := NewClient("some string", logger)
 		req, err := c.NewRequest("POST", "measurements", &Measurement{})
 		if req == nil || err != nil {
 			t.Errorf("There was an error creating request")
 		}
-
-		logger.Infof("Finishing %s - test run. . .\n", t.Name())
 	})
 
 	t.Run("Request error", func(t *testing.T) {
 		logger := &papertrail.LoggerImpl{}
 		logger.Infof("Starting %s - test run. . .\n", t.Name())
+		defer logger.Infof("Finishing %s - test run. . .\n", t.Name())
 
 		c := NewClient("some string", logger)
 		req, err := c.NewRequest("POST", "measurements", make(chan int))
 		if req != nil || err == nil {
 			t.Errorf("There should have been an error creating request")
 		}
-
-		logger.Infof("Finishing %s - test run. . .\n", t.Name())
 	})
 }
 
@@ -79,6 +77,8 @@ func TestDo(t *testing.T) {
 	t.Run("All good", func(t *testing.T) {
 		logger := &papertrail.LoggerImpl{}
 		logger.Infof("Starting %s - test run. . .\n", t.Name())
+		defer logger.Infof("Finishing %s - test run. . .\n", t.Name())
+
 		var count int64
 
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -103,13 +103,13 @@ func TestDo(t *testing.T) {
 		if count != 1 {
 			t.Errorf("Received requests dont match expected.")
 		}
-
-		logger.Infof("Finishing %s - test run. . .\n", t.Name())
 	})
 
 	t.Run("Remote error", func(t *testing.T) {
 		logger := &papertrail.LoggerImpl{}
 		logger.Infof("Starting %s - test run. . .\n", t.Name())
+		defer logger.Infof("Finishing %s - test run. . .\n", t.Name())
+
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "I dont like your message.", http.StatusInternalServerError)
 		}))
@@ -128,7 +128,5 @@ func TestDo(t *testing.T) {
 		if resp != nil && resp.StatusCode == http.StatusOK {
 			t.Error("Unexpected response")
 		}
-
-		logger.Infof("Finishing %s - test run. . .\n", t.Name())
 	})
 }

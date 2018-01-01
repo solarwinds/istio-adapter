@@ -14,6 +14,7 @@ func TestCreate(t *testing.T) {
 	t.Run("All good", func(t *testing.T) {
 		logger := &papertrail.LoggerImpl{}
 		logger.Infof("Starting %s - test run. . .\n", t.Name())
+		defer logger.Infof("Finishing %s - test run. . .\n", t.Name())
 
 		var count int64
 
@@ -38,7 +39,5 @@ func TestCreate(t *testing.T) {
 		if count != 1 {
 			t.Errorf("Received requests dont match expected.")
 		}
-
-		logger.Infof("Finishing %s - test run. . .\n", t.Name())
 	})
 }

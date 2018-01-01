@@ -16,6 +16,7 @@ func TestBatchMeasurements(t *testing.T) {
 	t.Run("All Good", func(t *testing.T) {
 		logger := &papertrail.LoggerImpl{}
 		logger.Infof("Starting %s - test run. . .", t.Name())
+		defer logger.Infof("Finished %s - test run. . .", t.Name())
 		prepChan := make(chan []*appoptics.Measurement)
 		pushChan := make(chan []*appoptics.Measurement)
 		stopChan := make(chan struct{})
@@ -39,12 +40,12 @@ func TestBatchMeasurements(t *testing.T) {
 			t.Errorf("Batching is not working properly. Expected batches is 1 but got %d", count)
 		}
 		close(stopChan)
-		logger.Infof("Finished %s - test run. . .", t.Name())
 	})
 
 	t.Run("Using stop chan", func(t *testing.T) {
 		logger := &papertrail.LoggerImpl{}
 		logger.Infof("Starting %s - test run. . .", t.Name())
+		defer logger.Infof("Finished %s - test run. . .", t.Name())
 		prepChan := make(chan []*appoptics.Measurement)
 		pushChan := make(chan []*appoptics.Measurement)
 		stopChan := make(chan struct{})
@@ -57,7 +58,6 @@ func TestBatchMeasurements(t *testing.T) {
 		close(stopChan)
 		close(prepChan)
 		close(pushChan)
-		logger.Infof("Finished %s - test run. . .", t.Name())
 	})
 
 }
@@ -108,6 +108,7 @@ func TestPersistBatches(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			logger := &papertrail.LoggerImpl{}
 			logger.Infof("Starting %s - test run. . .\n", t.Name())
+			defer logger.Infof("Finished %s - test run. . .", t.Name())
 			pushChan := make(chan []*appoptics.Measurement)
 			stopChan := make(chan struct{})
 			errChan := make(chan error)
@@ -146,7 +147,6 @@ func TestPersistBatches(t *testing.T) {
 			close(pushChan)
 			close(stopChan)
 			close(errChan)
-			logger.Infof("Finished %s - test run. . .", t.Name())
 		})
 	}
 }
