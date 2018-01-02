@@ -113,7 +113,7 @@ func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfig
 }
 
 func (p *PaperTrailLogger) Log(msg *logentry.Instance) error {
-	p.log.Infof("AO - In Log method. Received msg: %s", msg)
+	p.log.Infof("AO - In Log method. Received msg: %v", msg)
 	linfo, ok := p.logInfos[msg.Name]
 	if !ok {
 		err := fmt.Errorf("Got an unknown instance of log: %s. Hence Skipping.", msg.Name)

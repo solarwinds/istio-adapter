@@ -65,12 +65,14 @@ func ManagePersistenceErrors(errorChan <-chan error, stopChan chan<- struct{}, l
 	for {
 		select {
 		case err := <-errorChan:
-			// errors = append(errors, err)
-			// if len(errors) > config.PushErrorLimit() {
-			// 	stopChan <- true
-			// 	break
-			// }
-			logger.Errorf("AO - Persistence Errors: %v", err)
+			if err != nil {
+				// errors = append(errors, err)
+				// if len(errors) > config.PushErrorLimit() {
+				// 	stopChan <- true
+				// 	break
+				// }
+				logger.Errorf("AO - Persistence Errors: %v", err)
+			}
 		}
 
 	}

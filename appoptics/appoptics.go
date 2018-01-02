@@ -71,10 +71,12 @@ func (b *builder) SetAdapterConfig(cfg adapter.Config) {
 	b.cfg = cfg.(*config.Params)
 }
 
-func (b *builder) SetLogEntryTypes(entries map[string]*logentry.Type) {
+func (b *builder) SetMetricTypes(map[string]*metric.Type) {}
 
-}
+func (b *builder) SetLogEntryTypes(entries map[string]*logentry.Type) {}
+
 func (b *builder) Validate() *adapter.ConfigErrors { return nil }
+
 func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, error) {
 	env.Logger().Infof("AO - Invoking AO build.")
 
