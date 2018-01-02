@@ -46,9 +46,9 @@ type (
 //	_ metric.Handler        = &handler{}
 //)
 
-const (
-	namespace = "istio"
-)
+//const (
+//	namespace = "istio"
+//)
 
 // GetInfo returns the Info associated with this adapter.
 func GetInfo() adapter.Info {
@@ -105,7 +105,6 @@ func (h *handler) HandleLogEntry(ctx context.Context, values []*logentry.Instanc
 
 func (h *handler) Close() error {
 	var err error
-	// h.logger.Infof("AO - closing handler")
 	h.logger.Infof("AO - closing handler")
 	if h.metricsHandler != nil {
 		err = h.metricsHandler.Close()

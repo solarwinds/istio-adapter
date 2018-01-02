@@ -22,6 +22,7 @@ type metricsHandlerInterface interface {
 type metricsHandler struct {
 	logger   adapter.Logger
 	prepChan chan []*appoptics.Measurement
+
 	stopChan chan struct{}
 	errChan  chan error
 	pushChan chan []*appoptics.Measurement
@@ -102,7 +103,8 @@ func (h *metricsHandler) HandleMetric(_ context.Context, vals []*metric.Instance
 
 func (h *metricsHandler) Close() error {
 	h.logger.Infof("AO - closing metrics handler")
-	h.stopChan <- struct{}{}
+	go func() { h.stopChan <- struct{}{} }()
+	time.Sleep(time.Millisecond)
 	close(h.prepChan)
 	close(h.pushChan)
 	close(h.errChan)
