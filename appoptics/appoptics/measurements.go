@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 
+	"istio.io/istio/mixer/adapter/appoptics/config"
 	"istio.io/istio/mixer/pkg/adapter"
 )
 
@@ -51,7 +52,9 @@ func (ms *MeasurementsService) Create(mc []*Measurement) (*http.Response, error)
 		ms.logger.Errorf("AO - Marshal error: %v\n", err)
 		return nil, err
 	}
-	ms.logger.Infof("AO - sending data to AppOptics with payload: %v\n", string(d))
+	if ms.logger.VerbosityLevel(config.DebugLevel) {
+		ms.logger.Infof("AO - sending data to AppOptics with payload: %v\n", string(d))
+	}
 	req, err := ms.client.NewRequest("POST", "measurements", payload)
 
 	if err != nil {

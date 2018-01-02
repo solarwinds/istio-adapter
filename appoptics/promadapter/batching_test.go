@@ -21,7 +21,9 @@ func TestBatchMeasurements(t *testing.T) {
 		pushChan := make(chan []*appoptics.Measurement)
 		stopChan := make(chan struct{})
 
-		go BatchMeasurements(prepChan, pushChan, stopChan, logger)
+		loopFactor := true
+
+		go BatchMeasurements(&loopFactor, prepChan, pushChan, stopChan, logger)
 
 		go func() {
 			measurements := []*appoptics.Measurement{}
@@ -50,11 +52,13 @@ func TestBatchMeasurements(t *testing.T) {
 		pushChan := make(chan []*appoptics.Measurement)
 		stopChan := make(chan struct{})
 
+		loopFactor := true
+
 		go func() {
 			time.Sleep(time.Millisecond)
 			stopChan <- struct{}{}
 		}()
-		BatchMeasurements(prepChan, pushChan, stopChan, logger)
+		BatchMeasurements(&loopFactor, prepChan, pushChan, stopChan, logger)
 		close(stopChan)
 		close(prepChan)
 		close(pushChan)
@@ -130,7 +134,10 @@ func TestPersistBatches(t *testing.T) {
 				<-errChan
 				atomic.AddInt64(&count, 1)
 			}()
-			go PersistBatches(&MockServiceAccessor{
+
+			loopFactor := true
+
+			go PersistBatches(&loopFactor, &MockServiceAccessor{
 				MockMeasurementsService: func() appoptics.MeasurementsCommunicator {
 					return &appoptics.MockMeasurementsService{
 						OnCreate: func(measurements []*appoptics.Measurement) (*http.Response, error) {

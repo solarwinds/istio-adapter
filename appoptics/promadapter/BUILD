@@ -11,6 +11,7 @@ go_library(
     visibility = ["//mixer/adapter/appoptics:__pkg__"],
     deps = [
         "//mixer/pkg/adapter:go_default_library",
+		"//mixer/adapter/appoptics/config:go_default_library",
         "//mixer/adapter/appoptics/appoptics:go_default_library",
     ],
 )

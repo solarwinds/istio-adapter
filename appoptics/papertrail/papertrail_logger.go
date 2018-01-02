@@ -22,6 +22,8 @@ import (
 const (
 	bucketName = "istio"
 
+	dbName = "istio-papertrail.db"
+
 	defaultWorkerCount = 10
 
 	defaultRetention = "24h"
@@ -41,6 +43,8 @@ type PaperTrailLoggerInterface interface {
 	Close() error
 }
 
+const maxRetry = 1
+
 type PaperTrailLogger struct {
 	paperTrailURL string
 
@@ -57,9 +61,11 @@ type PaperTrailLogger struct {
 	log adapter.Logger
 
 	maxWorkers int
+
+	loopFactor *bool
 }
 
-func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfigs []*config.Params_LogInfo, logger adapter.Logger) (PaperTrailLoggerInterface, error) {
+func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfigs []*config.Params_LogInfo, logger adapter.Logger, loopFactor *bool) (PaperTrailLoggerInterface, error) {
 
 	retention, err := time.ParseDuration(logRetentionStr)
 	if err != nil {
@@ -71,9 +77,8 @@ func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfig
 
 	// This is being called several times. But BoltDB only allows one connection.
 	if db == nil {
-		db, err = bolt.Open("istio-papertrail.db", 0600, &bolt.Options{Timeout: 1 * time.Second})
+		db, err = openDB(dbName, logger)
 		if err != nil {
-			logger.Errorf("Unable to open a database for papertrail log processing: %v.", err)
 			return nil, err
 		}
 	}
@@ -86,6 +91,7 @@ func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfig
 		db:              db,
 		log:             logger,
 		maxWorkers:      defaultWorkerCount,
+		loopFactor:      loopFactor,
 	}
 
 	p.logInfos = map[string]*logInfo{}
@@ -112,13 +118,22 @@ func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfig
 	return p, nil
 }
 
+func openDB(dbName string, logger adapter.Logger) (*bolt.DB, error) {
+	db, err := bolt.Open(dbName, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		logger.Errorf("Unable to open a database for papertrail log processing: %v.", err)
+		return nil, err
+	}
+	return db, nil
+}
+
 func (p *PaperTrailLogger) Log(msg *logentry.Instance) error {
-	p.log.Infof("AO - In Log method. Received msg: %v", msg)
+	if p.log.VerbosityLevel(config.DebugLevel) {
+		p.log.Infof("AO - In Log method. Received msg: %v", msg)
+	}
 	linfo, ok := p.logInfos[msg.Name]
 	if !ok {
-		err := fmt.Errorf("Got an unknown instance of log: %s. Hence Skipping.", msg.Name)
-		p.log.Errorf("%v", err)
-		return err
+		return p.log.Errorf("Got an unknown instance of log: %s. Hence Skipping.", msg.Name)
 	}
 	buf := pool.GetBuffer()
 	msg.Variables["timestamp"] = time.Now()
@@ -128,45 +143,60 @@ func (p *PaperTrailLogger) Log(msg *logentry.Instance) error {
 	}
 
 	if err := linfo.tmpl.Execute(buf, msg.Variables); err != nil {
-		// We'll just continue on with an empty payload for this entry - we could still be populating the HTTP req with valuable info, for example.
 		p.log.Errorf("failed to execute template for log '%s': %v", msg.Name, err)
 	}
 	payload := buf.String()
 	pool.PutBuffer(buf)
 
 	if len(payload) > 0 {
-		p.log.Infof("AO - In Log method. Now persisting to boltdb: %s", msg)
-		err := p.db.Update(func(tx *bolt.Tx) error {
-			buc, err := tx.CreateBucketIfNotExists([]byte(bucketName))
-			if err != nil {
-				p.log.Errorf("Unable to create bucket error: %v", err)
-				return err
+		retryCount := 0
+	RETRY_STORE:
+		if retryCount <= maxRetry {
+			if p.log.VerbosityLevel(config.DebugLevel) {
+				p.log.Infof("AO - In Log method. Now persisting to boltdb: %s", msg)
 			}
-			err = buc.Put([]byte(fmt.Sprintf("%d", time.Now().UnixNano())), []byte(payload))
-			return err
-		})
-		if err != nil {
-			e := fmt.Errorf("Unable to store the log for further processing: %s - Error: %v", payload, err)
-			p.log.Errorf("%v", e)
-			return e
+			err := p.db.Update(func(tx *bolt.Tx) error {
+				buc, err := tx.CreateBucketIfNotExists([]byte(bucketName))
+				if err != nil {
+					p.log.Errorf("Unable to create bucket error: %v", err)
+					return err
+				}
+				err = buc.Put([]byte(fmt.Sprintf("%d", time.Now().UnixNano())), []byte(payload))
+				return err
+			})
+			if err != nil {
+				if err == bolt.ErrDatabaseNotOpen {
+					db, err = openDB(dbName, p.log)
+					if err != nil {
+						p.log.Errorf("Error reading the data in the DB and shipping logs: %v", err)
+					} else {
+						p.db = db
+						// retry persisting
+						retryCount++
+						goto RETRY_STORE
+					}
+				} else {
+					return p.log.Errorf("Unable to store the log for further processing: %s - Error: %v", payload, err)
+				}
+			}
+		} else {
+			p.log.Errorf("Max retry limit exceeded. Skipping storing log entry to DB: %s", payload)
 		}
 	}
 	return nil
 }
 func (p *PaperTrailLogger) sendLogs(data []byte) error {
 	var err error
-	p.log.Infof("AO - In sendLogs method. sending msg: %s", string(data))
+	if p.log.VerbosityLevel(config.DebugLevel) {
+		p.log.Infof("AO - In sendLogs method. sending msg: %s", string(data))
+	}
 	writer, err := syslog.Dial("udp", p.paperTrailURL, syslog.LOG_EMERG|syslog.LOG_KERN, "istio")
 	if err != nil {
-		e := fmt.Errorf("AO - Failed to dial syslog: %v", err)
-		p.log.Errorf("%v", e)
-		return e
+		return p.log.Errorf("AO - Failed to dial syslog: %v", err)
 	}
 	err = writer.Info(string(data))
 	if err != nil {
-		e := fmt.Errorf("failed to send log msg to papertrail: %v", err)
-		p.log.Errorf("%v", e)
-		return e
+		return p.log.Errorf("failed to send log msg to papertrail: %v", err)
 	}
 	return nil
 }
@@ -174,7 +204,7 @@ func (p *PaperTrailLogger) sendLogs(data []byte) error {
 // This should be run in a routine
 func (p *PaperTrailLogger) flushLogs() {
 	var err error
-	for p.db != nil {
+	for p.db != nil && *p.loopFactor {
 		err = p.db.Update(func(tx *bolt.Tx) error {
 			hose := make(chan []byte, p.maxWorkers)
 			// close the channel
@@ -183,24 +213,28 @@ func (p *PaperTrailLogger) flushLogs() {
 			// Assume bucket exists and has keys
 			b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
 			if err != nil {
-				err1 := fmt.Errorf("Unable to create bucket error: %v", err)
-				p.log.Errorf("%v", err1)
-				return err1
+				return p.log.Errorf("Unable to create bucket error: %v", err)
 			}
 
 			for i := 0; i < p.maxWorkers; i++ {
 				go func(worker int) {
-					p.log.Infof("AO - flushlogs, worker %d initialized.", (worker + 1))
-					defer p.log.Infof("AO - flushlogs, worker %d signing off.", (worker + 1))
+					if p.log.VerbosityLevel(config.DebugLevel) {
+						p.log.Infof("AO - flushlogs, worker %d initialized.", (worker + 1))
+						defer p.log.Infof("AO - flushlogs, worker %d signing off.", (worker + 1))
+					}
 					for key := range hose {
-						p.log.Infof("AO - flushlogs, worker %d took the job.", (worker + 1))
+						if p.log.VerbosityLevel(config.DebugLevel) {
+							p.log.Infof("AO - flushlogs, worker %d took the job.", (worker + 1))
+						}
 						val := b.Get(key)
 						err = p.sendLogs(val)
 						if err == nil {
-							p.log.Infof("AO - flushLogs, delete key: %s", string(key))
+							if p.log.VerbosityLevel(config.DebugLevel) {
+								p.log.Infof("AO - flushLogs, delete key: %s", string(key))
+							}
 							err = b.Delete(key)
 							if err != nil {
-								p.log.Errorf("Unable to delete from boltdb: %v. Continuing to try", err)
+								p.log.Errorf("Unable to delete key(%s) from boltdb: %v. Continuing to try", string(key), err)
 							} else {
 								wg.Done()
 								continue
@@ -211,7 +245,9 @@ func (p *PaperTrailLogger) flushLogs() {
 						ts := time.Unix(0, tsN)
 
 						if time.Since(ts) > p.retentionPeriod {
-							p.log.Infof("AO - flushLogs, delete key: %s bcoz it is past retention period.", string(key))
+							if p.log.VerbosityLevel(config.DebugLevel) {
+								p.log.Infof("AO - flushLogs, delete key: %s bcoz it is past retention period.", string(key))
+							}
 							err = b.Delete(key)
 							if err != nil {
 								p.log.Errorf("Unable to delete from boltdb: %v. Continuing to try", err)
@@ -234,7 +270,16 @@ func (p *PaperTrailLogger) flushLogs() {
 			return nil
 		})
 		if err != nil {
-			p.log.Errorf("Error reading the data in the DB and shipping logs: %v", err)
+			if err == bolt.ErrDatabaseNotOpen {
+				db, err = openDB(dbName, p.log)
+				if err != nil {
+					p.log.Errorf("Error reading the data in the DB and shipping logs: %v", err)
+				} else {
+					p.db = db
+				}
+			} else {
+				p.log.Errorf("Error reading the data in the DB and shipping logs: %v", err)
+			}
 		}
 		time.Sleep(time.Second)
 	}
@@ -244,15 +289,13 @@ func (p *PaperTrailLogger) Close() error {
 	if p.writer != nil {
 		err = p.writer.Close()
 		if err != nil {
-			e := fmt.Errorf("failed to close papertrail logger: %v", err)
-			p.log.Errorf("%v", e)
-			return e
+			return p.log.Errorf("failed to close papertrail logger: %v", err)
 		}
 	}
 
-	// TODO: This is experimental. Needs to be tested.
 	if p.db != nil {
 		err = p.db.Close()
+		p.db = nil
 	}
 	return err
 }

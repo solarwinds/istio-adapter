@@ -26,10 +26,14 @@ type metricsHandler struct {
 	stopChan chan struct{}
 	errChan  chan error
 	pushChan chan []*appoptics.Measurement
+
+	loopFactor *bool
 }
 
-func NewMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params) (metricsHandlerInterface, error) {
-	env.Logger().Infof("AO - Invoking metrics handler build.")
+func NewMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params, loopFactor *bool) (metricsHandlerInterface, error) {
+	if env.Logger().VerbosityLevel(config.DebugLevel) {
+		env.Logger().Infof("AO - Invoking metrics handler build.")
+	}
 
 	var err error
 	// prepChan holds groups of Measurements to be batched
@@ -47,9 +51,9 @@ func NewMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params)
 	if strings.TrimSpace(cfg.AppopticsAccessToken) != "" {
 		lc := appoptics.NewClient(cfg.AppopticsAccessToken, env.Logger())
 
-		go promadapter.BatchMeasurements(prepChan, pushChan, stopChan, env.Logger())
-		go promadapter.PersistBatches(lc, pushChan, stopChan, errorChan, env.Logger())
-		go promadapter.ManagePersistenceErrors(errorChan, stopChan, env.Logger())
+		go promadapter.BatchMeasurements(loopFactor, prepChan, pushChan, stopChan, env.Logger())
+		go promadapter.PersistBatches(loopFactor, lc, pushChan, stopChan, errorChan, env.Logger())
+		go promadapter.ManagePersistenceErrors(loopFactor, errorChan, stopChan, env.Logger())
 	} else {
 		go func() {
 			// to drain the channel
@@ -60,20 +64,25 @@ func NewMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params)
 	}
 
 	return &metricsHandler{
-		logger:   env.Logger(),
-		prepChan: prepChan,
-		stopChan: stopChan,
-		errChan:  errorChan,
-		pushChan: pushChan,
+		logger:     env.Logger(),
+		prepChan:   prepChan,
+		stopChan:   stopChan,
+		errChan:    errorChan,
+		pushChan:   pushChan,
+		loopFactor: loopFactor,
 	}, err
 }
 
 func (h *metricsHandler) HandleMetric(_ context.Context, vals []*metric.Instance) error {
-	h.logger.Infof("AO - In the metrics handler. Received metrics: %#v", vals)
+	if h.logger.VerbosityLevel(config.DebugLevel) {
+		h.logger.Infof("AO - In the metrics handler. Received metrics: %#v", vals)
+	}
 	measurements := []*appoptics.Measurement{}
 	for _, val := range vals {
-		h.logger.Infof("AO - In the metrics handler. Evaluating metric: %#v", val)
-		h.logger.Infof("Received Metric Name: %s, Dimensions: %v, Value: %v", val.Name, val.Dimensions, val.Value)
+		if h.logger.VerbosityLevel(config.DebugLevel) {
+			h.logger.Infof("AO - In the metrics handler. Evaluating metric: %#v", val)
+			h.logger.Infof("Received Metric Name: %s, Dimensions: %v, Value: %v", val.Name, val.Dimensions, val.Value)
+		}
 		var merticVal float64
 		merticVal = h.aoVal(val.Value)
 
@@ -102,9 +111,9 @@ func (h *metricsHandler) HandleMetric(_ context.Context, vals []*metric.Instance
 }
 
 func (h *metricsHandler) Close() error {
-	h.logger.Infof("AO - closing metrics handler")
-	go func() { h.stopChan <- struct{}{} }()
-	time.Sleep(time.Millisecond)
+	if h.logger.VerbosityLevel(config.DebugLevel) {
+		h.logger.Infof("AO - closing metrics handler")
+	}
 	close(h.prepChan)
 	close(h.pushChan)
 	close(h.errChan)
@@ -125,14 +134,14 @@ func (h *metricsHandler) aoVal(i interface{}) float64 {
 	case string:
 		f, err := strconv.ParseFloat(vv, 64)
 		if err != nil {
-			h.logger.Infof("AO - Error parsing metric val: %v", vv)
+			h.logger.Errorf("AO - Error parsing metric val: %v", vv)
 			// return math.NaN(), err
 			f = 0
 		}
 		return f
 	default:
 		// return math.NaN(), fmt.Errorf("could not extract numeric value for %v", val)
-		h.logger.Infof("AO - could not extract numeric value for %v", vv)
+		h.logger.Errorf("AO - could not extract numeric value for %v", vv)
 		return 0
 	}
 }

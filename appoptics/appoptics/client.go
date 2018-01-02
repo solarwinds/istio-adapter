@@ -3,7 +3,6 @@ package appoptics
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -141,12 +140,9 @@ func checkError(resp *http.Response, log adapter.Logger) error {
 		body, _ := ioutil.ReadAll(resp.Body)
 		err := json.Unmarshal(body, &errResponse)
 		if err == nil {
-			log.Infof("Error: %+v", errResponse)
-			return &errResponse
+			return log.Errorf("Error: %+v", errResponse)
 		} else {
-			stringBody := string(body)
-			log.Infof("Error: %s", stringBody)
-			return fmt.Errorf("%s", stringBody)
+			return log.Errorf("Error: %s", string(body))
 		}
 	}
 	return nil

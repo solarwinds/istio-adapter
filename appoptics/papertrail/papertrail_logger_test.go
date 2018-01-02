@@ -14,6 +14,7 @@ import (
 
 func TestNewPaperTrailLogger(t *testing.T) {
 	logger := &LoggerImpl{}
+	loopFactor := true
 	type (
 		args struct {
 			paperTrailURL   string
@@ -43,7 +44,7 @@ func TestNewPaperTrailLogger(t *testing.T) {
 			logger.Infof("Starting %s - test run. . .", t.Name())
 			defer logger.Infof("Finished %s - test run. . .", t.Name())
 
-			got, err := NewPaperTrailLogger(tt.args.paperTrailURL, tt.args.logRetentionStr, tt.args.logConfigs, tt.args.logger)
+			got, err := NewPaperTrailLogger(tt.args.paperTrailURL, tt.args.logRetentionStr, tt.args.logConfigs, tt.args.logger, &loopFactor)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewPaperTrailLogger() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -58,6 +59,7 @@ func TestNewPaperTrailLogger(t *testing.T) {
 
 func TestLog(t *testing.T) {
 	logger := &LoggerImpl{}
+	loopFactor := true
 	t.Run("No log info for msg name", func(t *testing.T) {
 		logger.Infof("Starting %s - test run. . .", t.Name())
 		defer logger.Infof("Finished %s - test run. . .", t.Name())
@@ -66,6 +68,7 @@ func TestLog(t *testing.T) {
 			paperTrailURL: "hello.world.hey",
 			log:           &LoggerImpl{},
 			logInfos:      map[string]*logInfo{},
+			loopFactor:    &loopFactor,
 		}
 
 		if pp.Log(&logentry.Instance{
@@ -85,7 +88,7 @@ func TestLog(t *testing.T) {
 			{
 				InstanceName: "params1",
 			},
-		}, logger)
+		}, logger, &loopFactor)
 		if err != nil {
 			t.Errorf("No error was expected")
 		}

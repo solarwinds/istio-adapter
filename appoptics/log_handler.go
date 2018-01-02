@@ -19,16 +19,19 @@ type logHandlerInterface interface {
 type logHandler struct {
 	logger           adapter.Logger
 	paperTrailLogger papertrail.PaperTrailLoggerInterface
+	loopFactor       *bool
 }
 
-func NewLogHandler(ctx context.Context, env adapter.Env, cfg *config.Params) (logHandlerInterface, error) {
-	env.Logger().Infof("AO - Invoking log handler build.")
+func NewLogHandler(ctx context.Context, env adapter.Env, cfg *config.Params, loopFactor *bool) (logHandlerInterface, error) {
+	if env.Logger().VerbosityLevel(config.DebugLevel) {
+		env.Logger().Infof("AO - Invoking log handler build.")
+	}
 	var pp *papertrail.PaperTrailLogger
 	var err error
 	var ok bool
 	if strings.TrimSpace(cfg.PapertrailUrl) != "" {
 		var ppi papertrail.PaperTrailLoggerInterface
-		ppi, err = papertrail.NewPaperTrailLogger(cfg.PapertrailUrl, cfg.PapertrailLocalRetention, cfg.Logs, env.Logger())
+		ppi, err = papertrail.NewPaperTrailLogger(cfg.PapertrailUrl, cfg.PapertrailLocalRetention, cfg.Logs, env.Logger(), loopFactor)
 		if err != nil {
 			return nil, err
 		}
@@ -42,11 +45,14 @@ func NewLogHandler(ctx context.Context, env adapter.Env, cfg *config.Params) (lo
 	return &logHandler{
 		logger:           env.Logger(),
 		paperTrailLogger: pp,
+		loopFactor:       loopFactor,
 	}, nil
 }
 
 func (h *logHandler) HandleLogEntry(ctx context.Context, values []*logentry.Instance) error {
-	h.logger.Infof("AO - In the log handler")
+	if h.logger.VerbosityLevel(config.DebugLevel) {
+		h.logger.Infof("AO - In the log handler")
+	}
 	for _, inst := range values {
 		l, _ := h.paperTrailLogger.(*papertrail.PaperTrailLogger)
 		if l != nil {
@@ -62,7 +68,9 @@ func (h *logHandler) HandleLogEntry(ctx context.Context, values []*logentry.Inst
 
 func (h *logHandler) Close() error {
 	var err error
-	h.logger.Infof("AO - closing log handler")
+	if h.logger.VerbosityLevel(config.DebugLevel) {
+		h.logger.Infof("AO - closing log handler")
+	}
 	if h.paperTrailLogger != nil {
 		err = h.paperTrailLogger.Close()
 	}

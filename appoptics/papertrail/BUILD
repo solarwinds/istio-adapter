@@ -4,7 +4,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["logger.go", "util.go"],
+    srcs = ["papertrail_logger.go", "util.go"],
     importpath = "istio.io/istio/mixer/adapter/appoptics/papertrail",
     deps = [
         "//mixer/adapter/appoptics/config:go_default_library",
@@ -20,7 +20,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
-        "logger_test.go",
+        "papertrail_logger_test.go",
     ],
     importpath = "istio.io/istio/mixer/adapter/appoptics/papertrail",
     library = ":go_default_library",

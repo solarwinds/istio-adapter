@@ -36,6 +36,7 @@ type (
 		logger         adapter.Logger
 		metricsHandler metricsHandlerInterface
 		logHandler     logHandlerInterface
+		loopFactor     *bool
 	}
 )
 
@@ -78,13 +79,19 @@ func (b *builder) SetLogEntryTypes(entries map[string]*logentry.Type) {}
 func (b *builder) Validate() *adapter.ConfigErrors { return nil }
 
 func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, error) {
-	env.Logger().Infof("AO - Invoking AO build.")
+	logger := env.Logger()
 
-	m, err := NewMetricsHandler(ctx, env, b.cfg)
+	loopFactor := true
+
+	if logger.VerbosityLevel(config.DebugLevel) {
+		logger.Infof("AO - Invoking AO build.")
+	}
+
+	m, err := NewMetricsHandler(ctx, env, b.cfg, &loopFactor)
 	if err != nil {
 		return nil, err
 	}
-	l, err := NewLogHandler(ctx, env, b.cfg)
+	l, err := NewLogHandler(ctx, env, b.cfg, &loopFactor)
 	if err != nil {
 		return nil, err
 	}
@@ -92,22 +99,32 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 		metricsHandler: m,
 		logHandler:     l,
 		logger:         env.Logger(),
+		loopFactor:     &loopFactor,
 	}, nil
 }
 
 func (h *handler) HandleMetric(ctx context.Context, vals []*metric.Instance) error {
-	h.logger.Infof("AO - In the metrics handler")
+	if h.logger.VerbosityLevel(config.DebugLevel) {
+		h.logger.Infof("AO - In the metrics handler")
+	}
 	return h.metricsHandler.HandleMetric(ctx, vals)
 }
 
 func (h *handler) HandleLogEntry(ctx context.Context, values []*logentry.Instance) error {
-	h.logger.Infof("AO - In the log handler")
+	if h.logger.VerbosityLevel(config.DebugLevel) {
+		h.logger.Infof("AO - In the log handler")
+	}
 	return h.logHandler.HandleLogEntry(ctx, values)
 }
 
 func (h *handler) Close() error {
 	var err error
-	h.logger.Infof("AO - closing handler")
+	if h.logger.VerbosityLevel(config.DebugLevel) {
+		h.logger.Infof("AO - closing handler")
+	}
+
+	*h.loopFactor = false // to kill the loops
+
 	if h.metricsHandler != nil {
 		err = h.metricsHandler.Close()
 		if err != nil {
