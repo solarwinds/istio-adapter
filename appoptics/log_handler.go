@@ -19,10 +19,9 @@ type logHandlerInterface interface {
 type logHandler struct {
 	logger           adapter.Logger
 	paperTrailLogger papertrail.PaperTrailLoggerInterface
-	loopFactor       *bool
 }
 
-func NewLogHandler(ctx context.Context, env adapter.Env, cfg *config.Params, loopFactor *bool) (logHandlerInterface, error) {
+func NewLogHandler(ctx context.Context, env adapter.Env, cfg *config.Params) (logHandlerInterface, error) {
 	if env.Logger().VerbosityLevel(config.DebugLevel) {
 		env.Logger().Infof("AO - Invoking log handler build.")
 	}
@@ -31,7 +30,7 @@ func NewLogHandler(ctx context.Context, env adapter.Env, cfg *config.Params, loo
 	var ok bool
 	if strings.TrimSpace(cfg.PapertrailUrl) != "" {
 		var ppi papertrail.PaperTrailLoggerInterface
-		ppi, err = papertrail.NewPaperTrailLogger(cfg.PapertrailUrl, cfg.PapertrailLocalRetention, cfg.Logs, env.Logger(), loopFactor)
+		ppi, err = papertrail.NewPaperTrailLogger(cfg.PapertrailUrl, cfg.PapertrailLocalRetention, cfg.Logs, env.Logger())
 		if err != nil {
 			return nil, err
 		}
@@ -45,7 +44,6 @@ func NewLogHandler(ctx context.Context, env adapter.Env, cfg *config.Params, loo
 	return &logHandler{
 		logger:           env.Logger(),
 		paperTrailLogger: pp,
-		loopFactor:       loopFactor,
 	}, nil
 }
 

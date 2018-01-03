@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"istio.io/istio/mixer/adapter/appoptics/config"
 	"istio.io/istio/mixer/pkg/adapter"
 
@@ -14,7 +13,6 @@ import (
 
 func TestNewPaperTrailLogger(t *testing.T) {
 	logger := &LoggerImpl{}
-	loopFactor := true
 	type (
 		args struct {
 			paperTrailURL   string
@@ -44,7 +42,7 @@ func TestNewPaperTrailLogger(t *testing.T) {
 			logger.Infof("Starting %s - test run. . .", t.Name())
 			defer logger.Infof("Finished %s - test run. . .", t.Name())
 
-			got, err := NewPaperTrailLogger(tt.args.paperTrailURL, tt.args.logRetentionStr, tt.args.logConfigs, tt.args.logger, &loopFactor)
+			got, err := NewPaperTrailLogger(tt.args.paperTrailURL, tt.args.logRetentionStr, tt.args.logConfigs, tt.args.logger)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewPaperTrailLogger() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -68,7 +66,7 @@ func TestLog(t *testing.T) {
 			paperTrailURL: "hello.world.hey",
 			log:           &LoggerImpl{},
 			logInfos:      map[string]*logInfo{},
-			loopFactor:    &loopFactor,
+			loopFactor:    loopFactor,
 		}
 
 		if pp.Log(&logentry.Instance{
@@ -88,7 +86,7 @@ func TestLog(t *testing.T) {
 			{
 				InstanceName: "params1",
 			},
-		}, logger, &loopFactor)
+		}, logger)
 		if err != nil {
 			t.Errorf("No error was expected")
 		}
@@ -135,15 +133,9 @@ func TestLog(t *testing.T) {
 
 func getKeyCount(pp *PaperTrailLogger) int {
 	count := 0
-	pp.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketName))
-		if b != nil {
-			c := b.Cursor()
-			for k, _ := c.First(); k != nil; k, _ = c.Next() {
-				count++
-			}
-		}
-		return nil
+	pp.cmap.Range(func(k, v interface{}) bool {
+		count++
+		return true
 	})
 	return count
 }

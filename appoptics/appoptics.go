@@ -36,7 +36,6 @@ type (
 		logger         adapter.Logger
 		metricsHandler metricsHandlerInterface
 		logHandler     logHandlerInterface
-		loopFactor     *bool
 	}
 )
 
@@ -81,17 +80,15 @@ func (b *builder) Validate() *adapter.ConfigErrors { return nil }
 func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, error) {
 	logger := env.Logger()
 
-	loopFactor := true
-
 	if logger.VerbosityLevel(config.DebugLevel) {
 		logger.Infof("AO - Invoking AO build.")
 	}
 
-	m, err := NewMetricsHandler(ctx, env, b.cfg, &loopFactor)
+	m, err := NewMetricsHandler(ctx, env, b.cfg)
 	if err != nil {
 		return nil, err
 	}
-	l, err := NewLogHandler(ctx, env, b.cfg, &loopFactor)
+	l, err := NewLogHandler(ctx, env, b.cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +96,6 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 		metricsHandler: m,
 		logHandler:     l,
 		logger:         env.Logger(),
-		loopFactor:     &loopFactor,
 	}, nil
 }
 
@@ -122,8 +118,6 @@ func (h *handler) Close() error {
 	if h.logger.VerbosityLevel(config.DebugLevel) {
 		h.logger.Infof("AO - closing handler")
 	}
-
-	*h.loopFactor = false // to kill the loops
 
 	if h.metricsHandler != nil {
 		err = h.metricsHandler.Close()

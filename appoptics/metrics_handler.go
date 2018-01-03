@@ -31,12 +31,14 @@ type metricsHandler struct {
 	loopFactor *bool
 }
 
-func NewMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params, loopFactor *bool) (metricsHandlerInterface, error) {
+func NewMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params) (metricsHandlerInterface, error) {
 	if env.Logger().VerbosityLevel(config.DebugLevel) {
 		env.Logger().Infof("AO - Invoking metrics handler build.")
 	}
 
 	buffChanSize := runtime.NumCPU() * 10
+
+	loopFactor := true
 
 	var err error
 	// prepChan holds groups of Measurements to be batched
@@ -54,9 +56,9 @@ func NewMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params,
 	if strings.TrimSpace(cfg.AppopticsAccessToken) != "" {
 		lc := appoptics.NewClient(cfg.AppopticsAccessToken, env.Logger())
 
-		go promadapter.BatchMeasurements(loopFactor, prepChan, pushChan, stopChan, env.Logger())
-		go promadapter.PersistBatches(loopFactor, lc, pushChan, stopChan, errorChan, env.Logger())
-		go promadapter.ManagePersistenceErrors(loopFactor, errorChan, stopChan, env.Logger())
+		go promadapter.BatchMeasurements(&loopFactor, prepChan, pushChan, stopChan, env.Logger())
+		go promadapter.PersistBatches(&loopFactor, lc, pushChan, stopChan, errorChan, env.Logger())
+		go promadapter.ManagePersistenceErrors(&loopFactor, errorChan, stopChan, env.Logger())
 	} else {
 		go func() {
 			// to drain the channel
@@ -72,7 +74,7 @@ func NewMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params,
 		stopChan:   stopChan,
 		errChan:    errorChan,
 		pushChan:   pushChan,
-		loopFactor: loopFactor,
+		loopFactor: &loopFactor,
 	}, err
 }
 
@@ -121,6 +123,7 @@ func (h *metricsHandler) Close() error {
 	close(h.pushChan)
 	close(h.errChan)
 	close(h.stopChan)
+	*h.loopFactor = false
 
 	return nil
 }

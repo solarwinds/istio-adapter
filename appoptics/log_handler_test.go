@@ -13,8 +13,6 @@ import (
 func TestNewLogHandler(t *testing.T) {
 	ctx := context.Background()
 
-	loopFactor := true
-
 	type testData struct {
 		name      string
 		cfg       *config.Params
@@ -47,7 +45,7 @@ func TestNewLogHandler(t *testing.T) {
 			logger.Infof("Starting %s - test run. . .", t.Name())
 			defer logger.Infof("Finished %s - test run. . .", t.Name())
 
-			lh, err := NewLogHandler(ctx, &adapterEnvInst{}, test.cfg, &loopFactor)
+			lh, err := NewLogHandler(ctx, &adapterEnvInst{}, test.cfg)
 			if err != nil {
 				t.Errorf("Unexpected error: %v while running test: %s", err, t.Name())
 				return
@@ -62,7 +60,6 @@ func TestNewLogHandler(t *testing.T) {
 
 func TestHandleLogEntry(t *testing.T) {
 	ctx := context.Background()
-	loopFactor := true
 	logger := &papertrail.LoggerImpl{}
 	t.Run("All good", func(t *testing.T) {
 		logger.Infof("Starting %s - test run. . .", t.Name())
@@ -89,7 +86,7 @@ func TestHandleLogEntry(t *testing.T) {
 					InstanceName: "params1",
 				},
 			},
-		}, &loopFactor)
+		})
 		err = lh.HandleLogEntry(ctx, []*logentry.Instance{
 			&logentry.Instance{
 				Name:      "params1",
@@ -104,7 +101,7 @@ func TestHandleLogEntry(t *testing.T) {
 
 	t.Run("papertrail instance is nil", func(t *testing.T) {
 		logger.Infof("Starting %s - test run. . .", t.Name())
-		lh, err := NewLogHandler(ctx, &adapterEnvInst{}, &config.Params{}, &loopFactor)
+		lh, err := NewLogHandler(ctx, &adapterEnvInst{}, &config.Params{})
 		if err != nil {
 			t.Errorf("Unexpected error while executing test: %s - err: %v", t.Name(), err)
 			return

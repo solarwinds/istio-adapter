@@ -13,7 +13,6 @@ import (
 
 	"log/syslog"
 
-	"github.com/boltdb/bolt"
 	"istio.io/istio/mixer/adapter/appoptics/config"
 	"istio.io/istio/mixer/pkg/adapter"
 	"istio.io/istio/mixer/template/logentry"
@@ -22,18 +21,12 @@ import (
 )
 
 const (
-	bucketName = "istio"
-
-	dbName = "istio-papertrail.db"
-
 	defaultRetention = "24h"
 
 	defaultTemplate = `{{or (.originIp) "-"}} - {{or (.sourceUser) "-"}} [{{or (.timestamp.Format "2006-01-02T15:04:05Z07:00") "-"}}] "{{or (.method) "-"}} {{or (.url) "-"}} {{or (.protocol) "-"}}" {{or (.responseCode) "-"}} {{or (.responseSize) "-"}}`
 )
 
 var defaultWorkerCount = 10
-
-var db *bolt.DB
 
 type logInfo struct {
 	labels []string
@@ -46,9 +39,8 @@ type PaperTrailLoggerInterface interface {
 }
 
 const (
-	maxRetry   = 1
 	keyFormat  = "TS:%d-BODY:%s"
-	keyPattern = "TS:(\\d+)-BODY"
+	keyPattern = "TS:(\\d+)-BODY:(.*)"
 )
 
 type PaperTrailLogger struct {
@@ -58,9 +50,7 @@ type PaperTrailLogger struct {
 
 	writer *syslog.Writer
 
-	mu sync.Mutex
-
-	db *bolt.DB
+	cmap *sync.Map
 
 	logInfos map[string]*logInfo
 
@@ -68,10 +58,10 @@ type PaperTrailLogger struct {
 
 	maxWorkers int
 
-	loopFactor *bool
+	loopFactor bool
 }
 
-func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfigs []*config.Params_LogInfo, logger adapter.Logger, loopFactor *bool) (PaperTrailLoggerInterface, error) {
+func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfigs []*config.Params_LogInfo, logger adapter.Logger) (PaperTrailLoggerInterface, error) {
 
 	retention, err := time.ParseDuration(logRetentionStr)
 	if err != nil {
@@ -81,23 +71,15 @@ func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfig
 		retention, _ = time.ParseDuration(defaultRetention)
 	}
 
-	// This is being called several times. But BoltDB only allows one connection.
-	if db == nil {
-		db, err = openDB(dbName, logger)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	logger.Infof("Creating a new paper trail logger for url: %s", paperTrailURL)
 
 	p := &PaperTrailLogger{
 		paperTrailURL:   paperTrailURL,
 		retentionPeriod: time.Duration(retention) * time.Hour,
-		db:              db,
+		cmap:            &sync.Map{},
 		log:             logger,
 		maxWorkers:      defaultWorkerCount * runtime.NumCPU(),
-		loopFactor:      loopFactor,
+		loopFactor:      true,
 	}
 
 	p.logInfos = map[string]*logInfo{}
@@ -124,15 +106,6 @@ func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfig
 	return p, nil
 }
 
-func openDB(dbName string, logger adapter.Logger) (*bolt.DB, error) {
-	db, err := bolt.Open(dbName, 0600, &bolt.Options{Timeout: 1 * time.Second})
-	if err != nil {
-		logger.Errorf("Unable to open a database for papertrail log processing: %v.", err)
-		return nil, err
-	}
-	return db, nil
-}
-
 func (p *PaperTrailLogger) Log(msg *logentry.Instance) error {
 	if p.log.VerbosityLevel(config.DebugLevel) {
 		p.log.Infof("AO - In Log method. Received msg: %v", msg)
@@ -150,48 +123,21 @@ func (p *PaperTrailLogger) Log(msg *logentry.Instance) error {
 
 	if err := linfo.tmpl.Execute(buf, msg.Variables); err != nil {
 		p.log.Errorf("failed to execute template for log '%s': %v", msg.Name, err)
+		// proceeding anyways
 	}
 	payload := buf.String()
 	pool.PutBuffer(buf)
 
 	if len(payload) > 0 {
-		retryCount := 0
-	RETRY_STORE:
-		if retryCount <= maxRetry {
-			if p.log.VerbosityLevel(config.DebugLevel) {
-				p.log.Infof("AO - In Log method. Now persisting to boltdb: %s", msg)
-			}
-			err := p.db.Update(func(tx *bolt.Tx) error {
-				buc, err := tx.CreateBucketIfNotExists([]byte(bucketName))
-				if err != nil {
-					p.log.Errorf("Unable to create bucket error: %v", err)
-					return err
-				}
-				err = buc.Put([]byte(fmt.Sprintf(keyFormat, time.Now().UnixNano(), payload)), []byte(payload))
-				return err
-			})
-			if err != nil {
-				if err == bolt.ErrDatabaseNotOpen {
-					db, err = openDB(dbName, p.log)
-					if err != nil {
-						p.log.Errorf("Error reading the data in the DB and shipping logs: %v", err)
-					} else {
-						p.db = db
-						// retry persisting
-						retryCount++
-						goto RETRY_STORE
-					}
-				} else {
-					return p.log.Errorf("Unable to store the log for further processing: %s - Error: %v", payload, err)
-				}
-			}
-		} else {
-			p.log.Errorf("Max retry limit exceeded. Skipping storing log entry to DB: %s", payload)
+		if p.log.VerbosityLevel(config.DebugLevel) {
+			p.log.Infof("AO - In Log method. Now persisting log: %s", msg)
 		}
+		ut := time.Now().UnixNano()
+		p.cmap.Store(fmt.Sprintf(keyFormat, ut, payload), struct{}{})
 	}
 	return nil
 }
-func (p *PaperTrailLogger) sendLogs(data []byte) error {
+func (p *PaperTrailLogger) sendLogs(data string) error {
 	var err error
 	if p.log.VerbosityLevel(config.DebugLevel) {
 		p.log.Infof("AO - In sendLogs method. sending msg: %s", string(data))
@@ -200,7 +146,7 @@ func (p *PaperTrailLogger) sendLogs(data []byte) error {
 	if err != nil {
 		return p.log.Errorf("AO - Failed to dial syslog: %v", err)
 	}
-	err = writer.Info(string(data))
+	err = writer.Info(data)
 	if err != nil {
 		return p.log.Errorf("failed to send log msg to papertrail: %v", err)
 	}
@@ -213,101 +159,70 @@ func (p *PaperTrailLogger) flushLogs() {
 
 	re := regexp.MustCompile(keyPattern)
 
-	for p.db != nil && *p.loopFactor {
-		err = p.db.Update(func(tx *bolt.Tx) error {
-			hose := make(chan []byte, p.maxWorkers)
-			// close the channel
-			defer close(hose)
-			var wg sync.WaitGroup
-			// Assume bucket exists and has keys
-			b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
-			if err != nil {
-				return p.log.Errorf("Unable to create bucket error: %v", err)
-			}
+	for p.loopFactor {
+		hose := make(chan interface{}, p.maxWorkers)
+		var wg sync.WaitGroup
 
-			for i := 0; i < p.maxWorkers; i++ {
-				go func(worker int) {
+		// workers
+		for i := 0; i < p.maxWorkers; i++ {
+			go func(worker int) {
+				if p.log.VerbosityLevel(config.DebugLevel) {
+					p.log.Infof("AO - flushlogs, worker %d initialized.", (worker + 1))
+					defer p.log.Infof("AO - flushlogs, worker %d signing off.", (worker + 1))
+				}
+
+				for keyI := range hose {
 					if p.log.VerbosityLevel(config.DebugLevel) {
-						p.log.Infof("AO - flushlogs, worker %d initialized.", (worker + 1))
-						defer p.log.Infof("AO - flushlogs, worker %d signing off.", (worker + 1))
+						p.log.Infof("AO - flushlogs, worker %d took the job.", (worker + 1))
 					}
-					for key := range hose {
-						if p.log.VerbosityLevel(config.DebugLevel) {
-							p.log.Infof("AO - flushlogs, worker %d took the job.", (worker + 1))
-						}
-						val := b.Get(key)
-						err = p.sendLogs(val)
+
+					key, _ := keyI.(string)
+					match := re.FindStringSubmatch(key)
+					if len(match) > 2 {
+						err = p.sendLogs(match[2]) // which is the actual log msg
 						if err == nil {
 							if p.log.VerbosityLevel(config.DebugLevel) {
 								p.log.Infof("AO - flushLogs, delete key: %s", string(key))
 							}
-							err = b.Delete(key)
-							if err != nil {
-								p.log.Errorf("Unable to delete key(%s) from boltdb: %v. Continuing to try", string(key), err)
-							} else {
-								wg.Done()
-								continue
-							}
+							p.cmap.Delete(key)
+							wg.Done()
+							continue
 						}
 
-						match := re.FindStringSubmatch(string(key))
-						if len(match) > 1 {
-							tsN, _ := strconv.ParseInt(match[1], 10, 64)
-							ts := time.Unix(0, tsN)
+						tsN, _ := strconv.ParseInt(match[1], 10, 64)
+						ts := time.Unix(0, tsN)
 
-							if time.Since(ts) > p.retentionPeriod {
-								if p.log.VerbosityLevel(config.DebugLevel) {
-									p.log.Infof("AO - flushLogs, delete key: %s bcoz it is past retention period.", string(key))
-								}
-								err = b.Delete(key)
-								if err != nil {
-									p.log.Errorf("Unable to delete from boltdb: %v. Continuing to try", err)
-								}
+						if time.Since(ts) > p.retentionPeriod {
+							if p.log.VerbosityLevel(config.DebugLevel) {
+								p.log.Infof("AO - flushLogs, delete key: %s bcoz it is past retention period.", string(key))
 							}
+							p.cmap.Delete(key)
 						}
-						wg.Done()
 					}
-				}(i)
-			}
-
-			c := b.Cursor()
-
-			for k, _ := c.First(); k != nil; k, _ = c.Next() {
-				wg.Add(1)
-				hose <- k
-			}
-
-			// need to wait for the tasks to complete
-			wg.Wait()
-			return nil
-		})
-		if err != nil {
-			if err == bolt.ErrDatabaseNotOpen {
-				db, err = openDB(dbName, p.log)
-				if err != nil {
-					p.log.Errorf("Error reading the data in the DB and shipping logs: %v", err)
-				} else {
-					p.db = db
+					wg.Done()
 				}
-			} else {
-				p.log.Errorf("Error reading the data in the DB and shipping logs: %v", err)
-			}
+			}(i)
 		}
+
+		p.cmap.Range(func(k, v interface{}) bool {
+			wg.Add(1)
+			hose <- k
+			return true
+		})
+		wg.Wait()
+		close(hose)
 		time.Sleep(time.Second)
 	}
 }
+
 func (p *PaperTrailLogger) Close() error {
 	var err error
+	p.loopFactor = false
 	if p.writer != nil {
 		err = p.writer.Close()
 		if err != nil {
 			return p.log.Errorf("failed to close papertrail logger: %v", err)
 		}
-	}
-
-	if p.db != nil {
-		err = p.db.Close()
-		p.db = nil
 	}
 	return err
 }

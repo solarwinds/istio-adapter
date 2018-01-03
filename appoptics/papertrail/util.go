@@ -11,7 +11,7 @@ import (
 type LoggerImpl struct{}
 
 func (l *LoggerImpl) VerbosityLevel(level adapter.VerbosityLevel) bool {
-	return false
+	return true
 }
 func (l *LoggerImpl) Infof(format string, args ...interface{}) {
 	fmt.Printf("INFO: "+format+"\n", args...)

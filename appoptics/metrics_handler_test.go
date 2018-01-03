@@ -34,9 +34,7 @@ func TestNewMetricsHandler(t *testing.T) {
 			logger.Infof("Starting %s - test run. . .\n", t.Name())
 			defer logger.Infof("Finished %s - test run. . .", t.Name())
 
-			loopFactor := true
-
-			mhi, err := NewMetricsHandler(ctx, &adapterEnvInst{}, test.cfg, &loopFactor)
+			mhi, err := NewMetricsHandler(ctx, &adapterEnvInst{}, test.cfg)
 			if err != nil {
 				t.Errorf("Unexpected error while running %s test - %v", t.Name(), err)
 				return
@@ -59,9 +57,7 @@ func TestHandleMetric(t *testing.T) {
 		logger.Infof("Starting %s - test run. . .\n", t.Name())
 		defer logger.Infof("Finished %s - test run. . .", t.Name())
 
-		loopFactor := true
-
-		mhi, err := NewMetricsHandler(ctx, &adapterEnvInst{}, &config.Params{}, &loopFactor)
+		mhi, err := NewMetricsHandler(ctx, &adapterEnvInst{}, &config.Params{})
 		if err != nil {
 			t.Errorf("Unexpected error while running %s test - %v", t.Name(), err)
 			return
