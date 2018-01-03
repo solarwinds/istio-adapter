@@ -48,8 +48,6 @@ type PaperTrailLogger struct {
 
 	retentionPeriod time.Duration
 
-	writer *syslog.Writer
-
 	cmap *sync.Map
 
 	logInfos map[string]*logInfo
@@ -146,6 +144,7 @@ func (p *PaperTrailLogger) sendLogs(data string) error {
 	if err != nil {
 		return p.log.Errorf("AO - Failed to dial syslog: %v", err)
 	}
+	defer writer.Close()
 	err = writer.Info(data)
 	if err != nil {
 		return p.log.Errorf("failed to send log msg to papertrail: %v", err)
@@ -211,18 +210,11 @@ func (p *PaperTrailLogger) flushLogs() {
 		})
 		wg.Wait()
 		close(hose)
-		time.Sleep(time.Second)
+		time.Sleep(500 * time.Millisecond)
 	}
 }
 
 func (p *PaperTrailLogger) Close() error {
-	var err error
 	p.loopFactor = false
-	if p.writer != nil {
-		err = p.writer.Close()
-		if err != nil {
-			return p.log.Errorf("failed to close papertrail logger: %v", err)
-		}
-	}
-	return err
+	return nil
 }
