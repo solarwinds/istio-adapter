@@ -3,6 +3,7 @@ package appoptics
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -35,13 +36,15 @@ func NewMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params,
 		env.Logger().Infof("AO - Invoking metrics handler build.")
 	}
 
+	buffChanSize := runtime.NumCPU() * 10
+
 	var err error
 	// prepChan holds groups of Measurements to be batched
-	prepChan := make(chan []*appoptics.Measurement)
+	prepChan := make(chan []*appoptics.Measurement, buffChanSize)
 
 	// pushChan holds groups of Measurements conforming to the size constraint described
 	// by AppOptics.MeasurementPostMaxBatchSize
-	pushChan := make(chan []*appoptics.Measurement)
+	pushChan := make(chan []*appoptics.Measurement, buffChanSize)
 
 	var stopChan = make(chan struct{})
 

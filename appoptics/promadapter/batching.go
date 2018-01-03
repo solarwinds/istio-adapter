@@ -16,6 +16,7 @@ import (
 func BatchMeasurements(loopFactor *bool, prepChan <-chan []*appoptics.Measurement, pushChan chan<- []*appoptics.Measurement, stopChan <-chan struct{}, logger adapter.Logger) {
 	var currentBatch []*appoptics.Measurement
 	dobrk := false
+	ticker := time.NewTicker(time.Millisecond * 500)
 	for *loopFactor {
 		select {
 		case mslice := <-prepChan:
@@ -30,6 +31,17 @@ func BatchMeasurements(loopFactor *bool, prepChan <-chan []*appoptics.Measuremen
 				pushBatch := currentBatch[:appoptics.MeasurementPostMaxBatchSize]
 				pushChan <- pushBatch
 				currentBatch = currentBatch[appoptics.MeasurementPostMaxBatchSize:]
+			}
+		case <-ticker.C: // to drain based on time as well
+			if len(currentBatch) > 0 {
+				if len(currentBatch) >= appoptics.MeasurementPostMaxBatchSize {
+					pushBatch := currentBatch[:appoptics.MeasurementPostMaxBatchSize]
+					pushChan <- pushBatch
+					currentBatch = currentBatch[appoptics.MeasurementPostMaxBatchSize:]
+				} else {
+					pushChan <- currentBatch
+					currentBatch = []*appoptics.Measurement{}
+				}
 			}
 		case <-stopChan:
 			dobrk = true

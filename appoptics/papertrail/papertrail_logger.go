@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"html/template"
 	"net"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,12 +26,12 @@ const (
 
 	dbName = "istio-papertrail.db"
 
-	defaultWorkerCount = 10
-
 	defaultRetention = "24h"
 
 	defaultTemplate = `{{or (.originIp) "-"}} - {{or (.sourceUser) "-"}} [{{or (.timestamp.Format "2006-01-02T15:04:05Z07:00") "-"}}] "{{or (.method) "-"}} {{or (.url) "-"}} {{or (.protocol) "-"}}" {{or (.responseCode) "-"}} {{or (.responseSize) "-"}}`
 )
+
+var defaultWorkerCount = 10
 
 var db *bolt.DB
 
@@ -43,7 +45,11 @@ type PaperTrailLoggerInterface interface {
 	Close() error
 }
 
-const maxRetry = 1
+const (
+	maxRetry   = 1
+	keyFormat  = "TS:%d-BODY:%s"
+	keyPattern = "TS:(\\d+)-BODY"
+)
 
 type PaperTrailLogger struct {
 	paperTrailURL string
@@ -90,7 +96,7 @@ func NewPaperTrailLogger(paperTrailURL string, logRetentionStr string, logConfig
 		retentionPeriod: time.Duration(retention) * time.Hour,
 		db:              db,
 		log:             logger,
-		maxWorkers:      defaultWorkerCount,
+		maxWorkers:      defaultWorkerCount * runtime.NumCPU(),
 		loopFactor:      loopFactor,
 	}
 
@@ -161,7 +167,7 @@ func (p *PaperTrailLogger) Log(msg *logentry.Instance) error {
 					p.log.Errorf("Unable to create bucket error: %v", err)
 					return err
 				}
-				err = buc.Put([]byte(fmt.Sprintf("%d", time.Now().UnixNano())), []byte(payload))
+				err = buc.Put([]byte(fmt.Sprintf(keyFormat, time.Now().UnixNano(), payload)), []byte(payload))
 				return err
 			})
 			if err != nil {
@@ -204,6 +210,9 @@ func (p *PaperTrailLogger) sendLogs(data []byte) error {
 // This should be run in a routine
 func (p *PaperTrailLogger) flushLogs() {
 	var err error
+
+	re := regexp.MustCompile(keyPattern)
+
 	for p.db != nil && *p.loopFactor {
 		err = p.db.Update(func(tx *bolt.Tx) error {
 			hose := make(chan []byte, p.maxWorkers)
@@ -241,16 +250,19 @@ func (p *PaperTrailLogger) flushLogs() {
 							}
 						}
 
-						tsN, _ := strconv.ParseInt(string(key), 10, 64)
-						ts := time.Unix(0, tsN)
+						match := re.FindStringSubmatch(string(key))
+						if len(match) > 1 {
+							tsN, _ := strconv.ParseInt(match[1], 10, 64)
+							ts := time.Unix(0, tsN)
 
-						if time.Since(ts) > p.retentionPeriod {
-							if p.log.VerbosityLevel(config.DebugLevel) {
-								p.log.Infof("AO - flushLogs, delete key: %s bcoz it is past retention period.", string(key))
-							}
-							err = b.Delete(key)
-							if err != nil {
-								p.log.Errorf("Unable to delete from boltdb: %v. Continuing to try", err)
+							if time.Since(ts) > p.retentionPeriod {
+								if p.log.VerbosityLevel(config.DebugLevel) {
+									p.log.Infof("AO - flushLogs, delete key: %s bcoz it is past retention period.", string(key))
+								}
+								err = b.Delete(key)
+								if err != nil {
+									p.log.Errorf("Unable to delete from boltdb: %v. Continuing to try", err)
+								}
 							}
 						}
 						wg.Done()
