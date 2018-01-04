@@ -19,7 +19,7 @@ type ServiceAccessor interface {
 
 const (
 	// MeasurementPostMaxBatchSize defines the max number of Measurements to send to the API at once
-	MeasurementPostMaxBatchSize = 100
+	MeasurementPostMaxBatchSize = 1000
 	defaultBaseURL              = "https://api.appoptics.com/v1/"
 	defaultMediaType            = "application/json"
 )

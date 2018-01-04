@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package prometheus publishes metric values collected by Mixer for
-// ingestion by prometheus.
-
 package appoptics
 
 import (

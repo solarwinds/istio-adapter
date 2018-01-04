@@ -11,7 +11,6 @@ go_library(
         "//mixer/pkg/adapter:go_default_library",
         "//mixer/pkg/pool:go_default_library",
         "//mixer/template/logentry:go_default_library",
-        "@com_github_boltdb_bolt//:go_default_library",
     ],
 )
 

@@ -34,33 +34,22 @@ var _ = math.Inf
 const _ = proto.GoGoProtoPackageIsVersion2 // please upgrade the proto package
 
 type Params struct {
-	AppopticsAccessToken     string `protobuf:"bytes,1,opt,name=appoptics_access_token,json=appopticsAccessToken,proto3" json:"appoptics_access_token,omitempty"`
-	PapertrailUrl            string `protobuf:"bytes,2,opt,name=papertrail_url,json=papertrailUrl,proto3" json:"papertrail_url,omitempty"`
-	PapertrailLocalRetention string `protobuf:"bytes,3,opt,name=papertrail_local_retention,json=papertrailLocalRetention,proto3" json:"papertrail_local_retention,omitempty"`
-	// The set of metrics to represent in Prometheus. If a metric is defined in Istio but doesn't have a corresponding
-	// shape here, it will not be populated at runtime.
-	Metrics []*Params_MetricInfo `protobuf:"bytes,4,rep,name=metrics" json:"metrics,omitempty"`
-	Logs    []*Params_LogInfo    `protobuf:"bytes,5,rep,name=logs" json:"logs,omitempty"`
+	AppopticsAccessToken     string               `protobuf:"bytes,1,opt,name=appoptics_access_token,json=appopticsAccessToken,proto3" json:"appoptics_access_token,omitempty"`
+	PapertrailUrl            string               `protobuf:"bytes,2,opt,name=papertrail_url,json=papertrailUrl,proto3" json:"papertrail_url,omitempty"`
+	PapertrailLocalRetention string               `protobuf:"bytes,3,opt,name=papertrail_local_retention,json=papertrailLocalRetention,proto3" json:"papertrail_local_retention,omitempty"`
+	Metrics                  []*Params_MetricInfo `protobuf:"bytes,4,rep,name=metrics" json:"metrics,omitempty"`
+	Logs                     []*Params_LogInfo    `protobuf:"bytes,5,rep,name=logs" json:"logs,omitempty"`
 }
 
 func (m *Params) Reset()                    { *m = Params{} }
 func (*Params) ProtoMessage()               {}
 func (*Params) Descriptor() ([]byte, []int) { return fileDescriptorConfig, []int{0} }
 
-// Describes how a metric should be represented in Prometheus.
 type Params_MetricInfo struct {
-	// Recommended. The name is used to register the prometheus metric.
-	// It must be unique across all prometheus metrics as prometheus does not allow duplicate names.
-	// If name is not specified a sanitized version of instance_name is used.
-	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Required. The name is the fully qualified name of the Istio metric instance
-	// that this MetricInfo processes.
-	InstanceName string `protobuf:"bytes,2,opt,name=instance_name,json=instanceName,proto3" json:"instance_name,omitempty"`
-	// Optional. A human readable description of this metric.
-	Description string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
-	// The names of labels to use: these need to match the dimensions of the Istio metric.
-	// TODO: see if we can remove this and rely on only the dimensions in the future.
-	LabelNames []string `protobuf:"bytes,4,rep,name=label_names,json=labelNames" json:"label_names,omitempty"`
+	Name         string   `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	InstanceName string   `protobuf:"bytes,2,opt,name=instance_name,json=instanceName,proto3" json:"instance_name,omitempty"`
+	Description  string   `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	LabelNames   []string `protobuf:"bytes,4,rep,name=label_names,json=labelNames" json:"label_names,omitempty"`
 }
 
 func (m *Params_MetricInfo) Reset()                    { *m = Params_MetricInfo{} }
@@ -68,13 +57,9 @@ func (*Params_MetricInfo) ProtoMessage()               {}
 func (*Params_MetricInfo) Descriptor() ([]byte, []int) { return fileDescriptorConfig, []int{0, 0} }
 
 type Params_LogInfo struct {
-	// The logging template provides a set of variables; these list the subset of variables that should be used to
-	// form Stackdriver labels for the log entry.
-	LabelNames []string `protobuf:"bytes,1,rep,name=label_names,json=labelNames" json:"label_names,omitempty"`
-	// A golang text/template template that will be executed to construct the payload for this log entry.
-	// It will be given the full set of variables for the log to use to construct its result.
-	PayloadTemplate string `protobuf:"bytes,2,opt,name=payload_template,json=payloadTemplate,proto3" json:"payload_template,omitempty"`
-	InstanceName    string `protobuf:"bytes,3,opt,name=instance_name,json=instanceName,proto3" json:"instance_name,omitempty"`
+	LabelNames      []string `protobuf:"bytes,1,rep,name=label_names,json=labelNames" json:"label_names,omitempty"`
+	PayloadTemplate string   `protobuf:"bytes,2,opt,name=payload_template,json=payloadTemplate,proto3" json:"payload_template,omitempty"`
+	InstanceName    string   `protobuf:"bytes,3,opt,name=instance_name,json=instanceName,proto3" json:"instance_name,omitempty"`
 }
 
 func (m *Params_LogInfo) Reset()                    { *m = Params_LogInfo{} }
