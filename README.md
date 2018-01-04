@@ -10,7 +10,7 @@ This adapter allows you to bring your services’ logs and metrics collected thr
 ![AppOptics integration screenshot](docs/istio-appoptics-2.png)
 
 ### Papertrail integration screenshot
-![Papertrail integration screenshot](docs/istio-papertrail.png)
+![Papertrail integration screenshot](docs/istio-papertrail-1.png)
 
 # Questions/Comments?
 Please [open an issue](https://github.com/solarwinds/istio-adapter/issues/new), we'd love to hear from you. As a SolarWinds Innovation Project, this adapter is supported in a best-effort fashion.
