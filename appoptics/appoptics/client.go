@@ -59,6 +59,10 @@ func NewClient(token string, logger adapter.Logger) *Client {
 	}
 	c.measurementsService = &MeasurementsService{c, logger}
 
+	c.client.Transport = &http.Transport{
+		MaxIdleConnsPerHost: 10,
+	}
+
 	return c
 }
 
