@@ -55,9 +55,3 @@ def mixer_adapter_repositories():
         commit = "f4b4367115ec2de254587813edaa901bc1c723a8",  # Mar 31, 2017 (no releases)
         importpath = "golang.org/x/text",
     )
-
-    go_repository(
-        name = "com_github_boltdb_bolt",
-        commit = "9da31745363232bc1e27dbab3569e77383a51585",
-        importpath = "github.com/boltdb/bolt",
-    )
