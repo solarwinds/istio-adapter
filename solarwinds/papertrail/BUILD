@@ -11,6 +11,9 @@ go_library(
         "//mixer/pkg/adapter:go_default_library",
         "//mixer/pkg/pool:go_default_library",
         "//mixer/template/logentry:go_default_library",
+        "@com_github_satori_go_uuid//:go_default_library",
+        "@com_github_dgraph_io_badger//:go_default_library",
+        "@com_github_dgraph_io_badger//options:go_default_library",
     ],
 )
 
@@ -23,5 +26,10 @@ go_test(
     ],
     importpath = "istio.io/istio/mixer/adapter/solarwinds/papertrail",
     library = ":go_default_library",
-    deps = ["//mixer/pkg/adapter/test:go_default_library"],
+    deps = [
+        "//mixer/pkg/adapter/test:go_default_library",
+        "@com_github_satori_go_uuid//:go_default_library",
+        "@com_github_dgraph_io_badger//:go_default_library",
+        "@com_github_dgraph_io_badger//options:go_default_library",
+    ],
 )
