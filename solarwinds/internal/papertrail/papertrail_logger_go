@@ -17,7 +17,7 @@ package papertrail
 import (
 	"fmt"
 	"html/template"
-	"log/syslog"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -44,7 +44,7 @@ const (
 
 	defaultUltimateMaxDiskUsage = 99 // usage cannot go beyond this percentage value
 
-	defaultBatchSize = 1000 // records
+	defaultBatchSize = 50 // records
 
 	dbLocation = "./badger"
 
@@ -92,6 +92,12 @@ type Logger struct {
 	maxWorkers int
 
 	loopFactor bool
+
+	delHose chan []byte
+
+	eventsCount *big.Int
+	sentCount   *big.Int
+	delCount    *big.Int
 }
 
 // NewLogger does some ground work and returns an instance of LoggerInterface
@@ -120,7 +126,12 @@ func NewLogger(paperTrailURL string, logRetentionStr string, logConfigs []*confi
 		log:              logger,
 		maxWorkers:       defaultWorkerCount * runtime.NumCPU(),
 		loopFactor:       true,
+		eventsCount:      big.NewInt(0),
+		delCount:         big.NewInt(0),
+		sentCount:        big.NewInt(0),
 	}
+
+	p.delHose = make(chan []byte, p.maxWorkers)
 
 	p.logInfos = map[string]*logInfo{}
 
@@ -133,7 +144,7 @@ func NewLogger(paperTrailURL string, logRetentionStr string, logConfigs []*confi
 		}
 		tmpl, err := template.New(l.InstanceName).Parse(templ)
 		if err != nil {
-			logger.Errorf("AO - failed to evaluate template for log instance: %s, skipping: %v", l.InstanceName, err)
+			logger.Errorf("ao - failed to evaluate template for log instance: %s, skipping: %v", l.InstanceName, err)
 			continue
 		}
 		p.logInfos[l.InstanceName] = &logInfo{
@@ -144,6 +155,7 @@ func NewLogger(paperTrailURL string, logRetentionStr string, logConfigs []*confi
 
 	go p.flushLogs()
 	go p.deleteExcess()
+	go p.batchDeletes()
 	go p.cleanup()
 	return p, nil
 }
@@ -151,7 +163,7 @@ func NewLogger(paperTrailURL string, logRetentionStr string, logConfigs []*confi
 // Log method receives log messages
 func (p *Logger) Log(msg *logentry.Instance) error {
 	if p.log.VerbosityLevel(config.DebugLevel) {
-		p.log.Infof("AO - In Log method. Received msg: %v", msg)
+		p.log.Infof("ao - In Log method. Received msg: %v", msg)
 	}
 	linfo, ok := p.logInfos[msg.Name]
 	if !ok {
@@ -173,10 +185,13 @@ func (p *Logger) Log(msg *logentry.Instance) error {
 
 	if len(payload) > 0 {
 		if p.log.VerbosityLevel(config.DebugLevel) {
-			p.log.Infof("AO - In Log method. Now persisting log: %s", msg)
+			p.log.Infof("ao - In Log method. Now persisting log: %s", msg)
 		}
 		uuid := uuid.NewV4()
 		err := p.db.Update(func(txn *badger.Txn) error {
+
+			p.eventsCount.Add(p.eventsCount, big.NewInt(1))
+
 			err := txn.SetWithTTL([]byte(fmt.Sprintf(keyFormat, time.Now().UnixNano(), uuid)), []byte(payload), p.retentionPeriod)
 			if err != nil {
 				return err
@@ -192,41 +207,45 @@ func (p *Logger) Log(msg *logentry.Instance) error {
 
 func (p *Logger) sendLogs(data string) error {
 	if p.log.VerbosityLevel(config.DebugLevel) {
-		p.log.Infof("AO - In sendLogs method. sending msg: %s", string(data))
+		p.log.Infof("ao - In sendLogs method. sending msg: %s", string(data))
 	}
 
-	writer, err := syslog.Dial("udp", p.paperTrailURL, syslog.LOG_EMERG|syslog.LOG_KERN, "istio")
-	if err != nil {
-		return p.log.Errorf("AO - Failed to dial syslog: %v", err)
-	}
-	defer writer.Close()
-	err = writer.Info(data)
-	if err != nil {
-		return p.log.Errorf("failed to send log msg to papertrail: %v", err)
-	}
+	p.sentCount.Add(p.sentCount, big.NewInt(1))
+
+	//writer, err := syslog.Dial("udp", p.paperTrailURL, syslog.LOG_EMERG|syslog.LOG_KERN, "istio")
+	//if err != nil {
+	//	return p.log.Errorf("ao - Failed to dial syslog: %v", err)
+	//}
+	//defer writer.Close()
+	//err = writer.Info(data)
+	//if err != nil {
+	//	return p.log.Errorf("failed to send log msg to papertrail: %v", err)
+	//}
 	return nil
 }
 
 // This should be run in a routine
 func (p *Logger) flushLogs() {
+	//re := regexp.MustCompile(keyPattern)
 	for p.loopFactor {
 		hose := make(chan []byte, p.maxWorkers)
+
 		var wg sync.WaitGroup
 
 		// workers
 		for i := 0; i < p.maxWorkers; i++ {
 			go func(worker int) {
 				if p.log.VerbosityLevel(config.DebugLevel) {
-					p.log.Infof("AO - flushlogs, worker %d initialized.", (worker + 1))
-					defer p.log.Infof("AO - flushlogs, worker %d signing off.", (worker + 1))
+					p.log.Infof("ao - flushlogs, worker %d initialized.", (worker + 1))
+					defer p.log.Infof("ao - flushlogs, worker %d signing off.", (worker + 1))
 				}
 
 				for key := range hose {
 					if p.log.VerbosityLevel(config.DebugLevel) {
-						p.log.Infof("AO - flushlogs, worker %d took the job.", (worker + 1))
+						p.log.Infof("ao - flushlogs, worker %d took the job.", (worker + 1))
 					}
 
-					err := p.db.Update(func(txn *badger.Txn) error {
+					err := p.db.View(func(txn *badger.Txn) error {
 						item, err := txn.Get(key)
 						if err != nil {
 							if err == badger.ErrKeyNotFound {
@@ -247,14 +266,26 @@ func (p *Logger) flushLogs() {
 						err = p.sendLogs(string(val))
 						if err == nil {
 							if p.log.VerbosityLevel(config.DebugLevel) {
-								p.log.Infof("AO - flushLogs, delete key: %s", key)
+								p.log.Infof("ao - flushLogs, delete key: %s", key)
 							}
-							err := txn.Delete(key)
-							if err != nil {
-								return err
-							}
+							p.delHose <- key
 							return nil
 						}
+
+						// this is not needed anymore bcoz of the TTL on items
+						//match := re.FindStringSubmatch(string(key))
+						//if len(match) > 2 {
+						//	tsN, _ := strconv.ParseInt(match[1], 10, 64)
+						//	ts := time.Unix(0, tsN)
+						//
+						//	if time.Since(ts) > p.retentionPeriod {
+						//		if p.log.VerbosityLevel(config.DebugLevel) {
+						//			p.log.Infof("ao - flushLogs, delete key: %s bcoz it is past retention period.", key)
+						//		}
+						//		p.delHose <- key
+						//	}
+						//}
+
 						return nil
 					})
 					if err != nil {
@@ -280,7 +311,7 @@ func (p *Logger) flushLogs() {
 			return nil
 		})
 		if err != nil {
-			p.log.Errorf("AO - flush logs - Error reading keys from db: ", err)
+			p.log.Errorf("ao - flush logs - Error reading keys from db: ", err)
 		}
 		wg.Wait()
 		close(hose)
@@ -291,10 +322,11 @@ func (p *Logger) flushLogs() {
 func (p *Logger) deleteExcess() {
 	for p.loopFactor {
 		currentUsage := diskUsage()
-		if p.log.VerbosityLevel(config.DebugLevel) {
-			p.log.Infof("Current disk usage: %.2f %%", currentUsage)
-			p.log.Infof("DB folder size: %.2f MB", computeDirectorySizeInMegs(dbLocation))
-		}
+		p.log.Infof("Current disk usage: %.2f %%", currentUsage)
+		p.log.Infof("DB folder size: %.2f MB", computeDirectorySizeInMegs(dbLocation))
+		p.log.Infof("Total events count: %d", p.eventsCount.Int64())
+		p.log.Infof("Total sent count: %d", p.sentCount.Int64())
+		p.log.Infof("Total delete count: %d", p.delCount.Int64())
 		if currentUsage > p.initialDiskUsage+defaultMaxDiskUsage || currentUsage > defaultUltimateMaxDiskUsage {
 			// delete from beginning
 			iterations := defaultBatchSize
@@ -307,7 +339,7 @@ func (p *Logger) deleteExcess() {
 					item := it.Item()
 					k := make([]byte, len(item.Key()))
 					copy(k, item.Key())
-					txn.Delete(k)
+					p.delHose <- k
 					iterations--
 					if iterations < 0 {
 						break
@@ -316,7 +348,7 @@ func (p *Logger) deleteExcess() {
 				return nil
 			})
 			if err != nil {
-				p.log.Errorf("AO - deleteExcess - Error while deleting - error: %v", err)
+				p.log.Errorf("ao - deleteExcess - Error while deleting - error: %v", err)
 			}
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -327,18 +359,68 @@ func (p *Logger) deleteExcess() {
 func (p *Logger) Close() error {
 	p.loopFactor = false
 	time.Sleep(time.Second)
+	close(p.delHose)
 	if p.db != nil {
 		return p.db.Close()
 	}
 	return nil
 }
 
+func (p *Logger) batchDeletes() {
+	batcher := make(chan [][]byte)
+	defer close(batcher)
+
+	go func() {
+		for keys := range batcher {
+			p.db.Update(func(txn *badger.Txn) error {
+				for _, key := range keys {
+
+					p.delCount.Add(p.delCount, big.NewInt(1))
+					//p.log.Infof("ao - batchDeletes - Deleting key: %s", key)
+					err := txn.Delete(key)
+					if err != nil {
+						if err == badger.ErrKeyNotFound {
+							// do nothing
+						} else {
+							p.log.Errorf("Error while deleting key: %s - error: %v", key, err)
+						}
+					}
+				}
+				return nil
+			})
+		}
+	}()
+
+	keys := [][]byte{}
+	ticker := time.NewTicker(time.Millisecond * 500)
+	for p.loopFactor {
+		select {
+		case key := <-p.delHose:
+			keys = append(keys, key)
+			if len(keys) >= defaultBatchSize {
+				batchKeys := keys[:defaultBatchSize]
+				batcher <- batchKeys
+				keys = keys[defaultBatchSize:]
+			}
+		case <-ticker.C: // to drain based on time as well
+			if len(keys) > 0 {
+				if len(keys) >= defaultBatchSize {
+					batchKeys := keys[:defaultBatchSize]
+					batcher <- batchKeys
+					keys = keys[defaultBatchSize:]
+				} else {
+					batcher <- keys
+					keys = [][]byte{}
+				}
+			}
+		}
+	}
+}
+
 func (p *Logger) cleanup() {
 	for p.loopFactor {
 		if p.db != nil {
-			if p.log.VerbosityLevel(config.DebugLevel) {
-				p.log.Infof("AO - cleanup - running GC")
-			}
+			p.log.Infof("ao - cleanup - running GC")
 			p.db.PurgeOlderVersions()
 			p.db.RunValueLogGC(0.99)
 		}
