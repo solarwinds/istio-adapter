@@ -1,4 +1,4 @@
-// Copyright 2017 Istio Authors.
+// Copyright 2018 Istio Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@ package solarwinds
 
 import (
 	"context"
-	"fmt"
 	"runtime"
 	"strconv"
 	"strings"
@@ -37,13 +36,15 @@ type metricsHandlerInterface interface {
 }
 
 type metricsHandler struct {
-	logger   adapter.Logger
-	prepChan chan []*appoptics.Measurement
-
-	stopChan chan struct{}
-	pushChan chan []*appoptics.Measurement
-
-	loopFactor *bool
+	logger      adapter.Logger
+	metricInfo  map[string]*config.Params_MetricInfo
+	prepChan    chan []*appoptics.Measurement
+	stopChan    chan struct{}
+	pushChan    chan []*appoptics.Measurement
+	loopFactor  *bool
+	lc          *appoptics.Client
+	batchWait   chan struct{}
+	persistWait chan struct{}
 }
 
 func newMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params) (metricsHandlerInterface, error) {
@@ -51,7 +52,6 @@ func newMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params)
 
 	loopFactor := true
 
-	var err error
 	// prepChan holds groups of Measurements to be batched
 	prepChan := make(chan []*appoptics.Measurement, buffChanSize)
 
@@ -59,10 +59,13 @@ func newMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params)
 	// by AppOptics.MeasurementPostMaxBatchSize
 	pushChan := make(chan []*appoptics.Measurement, buffChanSize)
 
-	var stopChan = make(chan struct{})
+	stopChan := make(chan struct{})
+	persistWait := make(chan struct{})
+	batchWait := make(chan struct{})
 
+	var lc *appoptics.Client
 	if strings.TrimSpace(cfg.AppopticsAccessToken) != "" {
-		lc := appoptics.NewClient(cfg.AppopticsAccessToken, env.Logger())
+		lc = appoptics.NewClient(cfg.AppopticsAccessToken, env.Logger())
 
 		batchSize := cfg.AppopticsBatchSize
 		if batchSize <= 0 || batchSize > MeasurementPostMaxBatchSize {
@@ -71,55 +74,49 @@ func newMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params)
 
 		env.ScheduleDaemon(func() {
 			appoptics.BatchMeasurements(&loopFactor, prepChan, pushChan, stopChan, int(batchSize), env.Logger())
+			batchWait <- struct{}{}
 		})
 		env.ScheduleDaemon(func() {
 			appoptics.PersistBatches(&loopFactor, lc, pushChan, stopChan, env.Logger())
-		})
-	} else {
-		env.ScheduleDaemon(func() {
-			// to drain the channel
-			for range prepChan {
-
-			}
+			persistWait <- struct{}{}
 		})
 	}
-
 	return &metricsHandler{
-		logger:     env.Logger(),
-		prepChan:   prepChan,
-		stopChan:   stopChan,
-		pushChan:   pushChan,
-		loopFactor: &loopFactor,
-	}, err
+		logger:      env.Logger(),
+		prepChan:    prepChan,
+		stopChan:    stopChan,
+		pushChan:    pushChan,
+		loopFactor:  &loopFactor,
+		lc:          lc,
+		persistWait: persistWait,
+		batchWait:   batchWait,
+		metricInfo:  cfg.Metrics,
+	}, nil
 }
 
 func (h *metricsHandler) handleMetric(_ context.Context, vals []*metric.Instance) error {
 	measurements := []*appoptics.Measurement{}
 	for _, val := range vals {
-		var merticVal float64
-		merticVal = h.aoVal(val.Value)
+		if mInfo, ok := h.metricInfo[val.Name]; ok {
+			merticVal := h.aoVal(val.Value)
 
-		m := &appoptics.Measurement{
-			Name:  val.Name,
-			Value: merticVal,
-			Time:  time.Now().Unix(),
-			Tags:  appoptics.MeasurementTags{},
-		}
-		for k, v := range val.Dimensions {
-			switch v.(type) {
-			case int, int32, int64:
-				m.Tags[k] = fmt.Sprintf("%d", v)
-			case float64:
-				m.Tags[k] = fmt.Sprintf("%f", v)
-			default:
-				m.Tags[k], _ = v.(string)
+			m := &appoptics.Measurement{
+				Name:  val.Name,
+				Value: merticVal,
+				Time:  time.Now().Unix(),
+				Tags:  appoptics.MeasurementTags{},
 			}
+
+			for _, label := range mInfo.LabelNames {
+				// val.Dimensions[label] should exists because we have validated this before during config time.
+				m.Tags[label] = adapter.Stringify(val.Dimensions[label])
+			}
+			measurements = append(measurements, m)
 		}
-
-		measurements = append(measurements, m)
 	}
-	h.prepChan <- measurements
-
+	if h.lc != nil {
+		h.prepChan <- measurements
+	}
 	return nil
 }
 
@@ -127,8 +124,13 @@ func (h *metricsHandler) close() error {
 	close(h.prepChan)
 	close(h.pushChan)
 	close(h.stopChan)
+	defer close(h.batchWait)
+	defer close(h.persistWait)
 	*h.loopFactor = false
-
+	if h.lc != nil {
+		<-h.batchWait
+		<-h.persistWait
+	}
 	return nil
 }
 
@@ -144,14 +146,12 @@ func (h *metricsHandler) aoVal(i interface{}) float64 {
 	case string:
 		f, err := strconv.ParseFloat(vv, 64)
 		if err != nil {
-			h.logger.Errorf("ao - Error parsing metric val: %v", vv)
-			// return math.NaN(), err
+			_ = h.logger.Errorf("error parsing metric val: %v", i)
 			f = 0
 		}
 		return f
 	default:
-		// return math.NaN(), fmt.Errorf("could not extract numeric value for %v", val)
-		h.logger.Errorf("ao - could not extract numeric value for %v", vv)
+		_ = h.logger.Errorf("could not extract numeric value for %v", i)
 		return 0
 	}
 }

@@ -1,4 +1,4 @@
-// Copyright 2017 Istio Authors.
+// Copyright 2018 Istio Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -63,8 +63,7 @@ func (ms *MeasurementsService) Create(mc []*Measurement) (*http.Response, error)
 	req, err := ms.client.NewRequest("POST", "measurements", payload)
 
 	if err != nil {
-		ms.logger.Errorf("error creating request: %v", err)
-		return nil, err
+		return nil, ms.logger.Errorf("error creating request: %v", err)
 	}
 	return ms.client.Do(req, nil)
 }
