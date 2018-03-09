@@ -1172,6 +1172,7 @@ spec:
   appoptics_access_token: 8418dc659a7f92f4bbacfa802d5cfc8ba3b3a13c12bafc801793e5023d031c08
   papertrail_url: logs6.papertrailapp.com:22782
   papertrail_local_retention_duration: 4h
+  loggly_token: ca9cc750-464d-423b-939e-bd527ee0ed36
   metrics:
     requestcount.metric.istio-system:
       label_names:

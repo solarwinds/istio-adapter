@@ -16,19 +16,15 @@ package solarwinds
 
 import (
 	"context"
-	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
 	"istio.io/istio/mixer/adapter/solarwinds/config"
-	"istio.io/istio/mixer/adapter/solarwinds/internal/appoptics"
 	"istio.io/istio/mixer/pkg/adapter"
 	"istio.io/istio/mixer/template/metric"
-)
 
-// MeasurementPostMaxBatchSize defines the max number of Measurements to send to the API at once
-const MeasurementPostMaxBatchSize = 1000
+	"github.com/appoptics/appoptics-api-go"
+)
 
 type metricsHandlerInterface interface {
 	handleMetric(context.Context, []*metric.Instance) error
@@ -36,75 +32,38 @@ type metricsHandlerInterface interface {
 }
 
 type metricsHandler struct {
-	logger      adapter.Logger
-	metricInfo  map[string]*config.Params_MetricInfo
-	prepChan    chan []*appoptics.Measurement
-	stopChan    chan struct{}
-	pushChan    chan []*appoptics.Measurement
-	loopFactor  *bool
-	lc          *appoptics.Client
-	batchWait   chan struct{}
-	persistWait chan struct{}
+	logger           adapter.Logger
+	metricInfo       map[string]*config.Params_MetricInfo
+	aoClient         *appoptics.Client
+	aoBatchPersister *appoptics.BatchPersister
 }
 
 func newMetricsHandler(ctx context.Context, env adapter.Env, cfg *config.Params) (metricsHandlerInterface, error) {
-	buffChanSize := runtime.NumCPU() * 10
-
-	loopFactor := true
-
-	// prepChan holds groups of Measurements to be batched
-	prepChan := make(chan []*appoptics.Measurement, buffChanSize)
-
-	// pushChan holds groups of Measurements conforming to the size constraint described
-	// by AppOptics.MeasurementPostMaxBatchSize
-	pushChan := make(chan []*appoptics.Measurement, buffChanSize)
-
-	stopChan := make(chan struct{})
-	persistWait := make(chan struct{})
-	batchWait := make(chan struct{})
-
 	var lc *appoptics.Client
+	var bp *appoptics.BatchPersister
 	if strings.TrimSpace(cfg.AppopticsAccessToken) != "" {
-		lc = appoptics.NewClient(cfg.AppopticsAccessToken, env.Logger())
-
-		batchSize := cfg.AppopticsBatchSize
-		if batchSize <= 0 || batchSize > MeasurementPostMaxBatchSize {
-			batchSize = MeasurementPostMaxBatchSize
-		}
-
-		env.ScheduleDaemon(func() {
-			appoptics.BatchMeasurements(&loopFactor, prepChan, pushChan, stopChan, int(batchSize), env.Logger())
-			batchWait <- struct{}{}
-		})
-		env.ScheduleDaemon(func() {
-			appoptics.PersistBatches(&loopFactor, lc, pushChan, stopChan, env.Logger())
-			persistWait <- struct{}{}
-		})
+		lc = appoptics.NewClient(cfg.AppopticsAccessToken)
+		bp = appoptics.NewBatchPersister(lc.MeasurementsService(), true)
+		env.ScheduleDaemon(bp.BatchAndPersistMeasurementsForever)
 	}
 	return &metricsHandler{
-		logger:      env.Logger(),
-		prepChan:    prepChan,
-		stopChan:    stopChan,
-		pushChan:    pushChan,
-		loopFactor:  &loopFactor,
-		lc:          lc,
-		persistWait: persistWait,
-		batchWait:   batchWait,
-		metricInfo:  cfg.Metrics,
+		logger:           env.Logger(),
+		aoClient:         lc,
+		aoBatchPersister: bp,
+		metricInfo:       cfg.Metrics,
 	}, nil
 }
 
 func (h *metricsHandler) handleMetric(_ context.Context, vals []*metric.Instance) error {
-	measurements := []*appoptics.Measurement{}
+	measurements := []appoptics.Measurement{}
 	for _, val := range vals {
 		if mInfo, ok := h.metricInfo[val.Name]; ok {
-			merticVal := h.aoVal(val.Value)
 
-			m := &appoptics.Measurement{
+			m := appoptics.Measurement{
 				Name:  val.Name,
-				Value: merticVal,
+				Value: val.Value,
 				Time:  time.Now().Unix(),
-				Tags:  appoptics.MeasurementTags{},
+				Tags:  map[string]string{},
 			}
 
 			for _, label := range mInfo.LabelNames {
@@ -114,44 +73,15 @@ func (h *metricsHandler) handleMetric(_ context.Context, vals []*metric.Instance
 			measurements = append(measurements, m)
 		}
 	}
-	if h.lc != nil {
-		h.prepChan <- measurements
+	if h.aoClient != nil {
+		h.aoBatchPersister.MeasurementsSink() <- measurements
 	}
 	return nil
 }
 
 func (h *metricsHandler) close() error {
-	close(h.prepChan)
-	close(h.pushChan)
-	close(h.stopChan)
-	defer close(h.batchWait)
-	defer close(h.persistWait)
-	*h.loopFactor = false
-	if h.lc != nil {
-		<-h.batchWait
-		<-h.persistWait
+	if h.aoClient != nil {
+		h.aoBatchPersister.MeasurementsStopBatchingChannel() <- true
 	}
 	return nil
-}
-
-func (h *metricsHandler) aoVal(i interface{}) float64 {
-	switch vv := i.(type) {
-	case float64:
-		return vv
-	case int64:
-		return float64(vv)
-	case time.Duration:
-		// use seconds for now
-		return vv.Seconds()
-	case string:
-		f, err := strconv.ParseFloat(vv, 64)
-		if err != nil {
-			_ = h.logger.Errorf("error parsing metric val: %v", i)
-			f = 0
-		}
-		return f
-	default:
-		_ = h.logger.Errorf("could not extract numeric value for %v", i)
-		return 0
-	}
 }

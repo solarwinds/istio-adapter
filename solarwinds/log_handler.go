@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fatih/structs"
+	"github.com/segmentio/go-loggly"
 	"istio.io/istio/mixer/adapter/solarwinds/config"
 	"istio.io/istio/mixer/adapter/solarwinds/internal/papertrail"
 	"istio.io/istio/mixer/pkg/adapter"
@@ -34,11 +36,13 @@ type logHandler struct {
 	env              adapter.Env
 	logger           adapter.Logger
 	paperTrailLogger papertrail.LoggerInterface
+	logglyClient     *loggly.Client
 }
 
 func newLogHandler(ctx context.Context, env adapter.Env, cfg *config.Params) (logHandlerInterface, error) {
 	var ppi papertrail.LoggerInterface
 	var err error
+	var lc *loggly.Client
 	if strings.TrimSpace(cfg.PapertrailUrl) != "" {
 		var retention time.Duration
 		if cfg.PapertrailLocalRetentionDuration != nil {
@@ -48,10 +52,14 @@ func newLogHandler(ctx context.Context, env adapter.Env, cfg *config.Params) (lo
 			return nil, err
 		}
 	}
+	if strings.TrimSpace(cfg.LogglyToken) != "" {
+		lc = loggly.New(cfg.LogglyToken)
+	}
 	return &logHandler{
 		logger:           env.Logger(),
 		env:              env,
 		paperTrailLogger: ppi,
+		logglyClient:     lc,
 	}, nil
 }
 
@@ -60,7 +68,13 @@ func (h *logHandler) handleLogEntry(ctx context.Context, values []*logentry.Inst
 		l, _ := h.paperTrailLogger.(*papertrail.Logger)
 		if l != nil {
 			if err := h.paperTrailLogger.Log(inst); err != nil {
-				return h.logger.Errorf("error while recording the log message: %v", err)
+				return h.logger.Errorf("error while recording the log message for papertrail: %v", err)
+			}
+		}
+
+		if h.logglyClient != nil {
+			if err := h.logglyClient.Send(structs.Map(inst)); err != nil {
+				return h.logger.Errorf("error while recording the log message for loggly: %v", err)
 			}
 		}
 	}

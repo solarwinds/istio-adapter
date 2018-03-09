@@ -107,6 +107,11 @@ message Params {
     // of a network failure. Default value is 1 hour.
     google.protobuf.Duration papertrail_local_retention_duration = 4 [(gogoproto.nullable)=true, (gogoproto.stdduration) = true];
 
+
+    // Loggly token needed to send logs to Loggly. If not token is given then logs will NOT be shipped to Loggly.
+    string loggly_token = 5;
+
+
     // Describes how to represent an Istio metric in Solarwinds AppOptics
     message MetricInfo {
         // The names of labels to use: these need to match the dimensions of the Istio metric.
@@ -114,7 +119,7 @@ message Params {
     }
 
     // A map of Istio metric name to solarwinds metric info.
-    map<string, MetricInfo> metrics = 5;
+    map<string, MetricInfo> metrics = 6;
 
     // Describes how to represent an Istio log entry in Solarwinds AppOptics
     message LogInfo {
@@ -131,5 +136,5 @@ message Params {
     }
 
     // A map of Istio logentry name to solarwinds log info.
-    map<string, LogInfo> logs = 6;
+    map<string, LogInfo> logs = 7;
 }
