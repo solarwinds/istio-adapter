@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/fatih/structs"
-	"github.com/segmentio/go-loggly"
+	loggly "github.com/segmentio/go-loggly"
 	papertrail_go "github.com/solarwinds/papertrail-go"
 	"istio.io/istio/mixer/adapter/solarwinds/config"
 	"istio.io/istio/mixer/pkg/adapter"
@@ -60,7 +60,8 @@ func newLogHandler(ctx context.Context, env adapter.Env, cfg *config.Params) (lo
 		if cfg.PapertrailLocalRetentionDuration != nil {
 			retention = *cfg.PapertrailLocalRetentionDuration
 		}
-		if ppi, err = papertrail_go.NewLogger(ctx, cfg.PapertrailProtocol, cfg.PapertrailUrl, "istio", retention); err != nil {
+		if ppi, err = papertrail_go.NewLogger(ctx, cfg.PapertrailProtocol, cfg.PapertrailUrl, "istio",
+			"", retention, 0, 0); err != nil {
 			return nil, err
 		}
 	}
