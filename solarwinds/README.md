@@ -12,5 +12,9 @@ This adapter allows you to bring your services’ logs and metrics collected thr
 ### Papertrail integration screenshot
 ![Papertrail integration screenshot](docs/istio-papertrail.png)
 
+## Istio Documentation
+* [Adapter Configuration](https://istio.io/docs/reference/config/policy-and-telemetry/adapters/solarwinds/)
+* [Observability Feature Stages](https://istio.io/about/feature-stages/#observability)
+
 # Questions/Comments?
 Please [open an issue](https://github.com/solarwinds/istio-adapter/issues/new), we'd love to hear from you. As a SolarWinds Innovation Project, this adapter is supported in a best-effort fashion.
